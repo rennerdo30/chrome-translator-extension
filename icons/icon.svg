@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4285f4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1557b0;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Main background - rounded square -->
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bgGrad)"/>
+
+  <!-- White circle background for better contrast -->
+  <circle cx="64" cy="64" r="48" fill="white" opacity="0.15"/>
+
+  <!-- Large, bold bidirectional arrows -->
+  <g>
+    <!-- Top arrow pointing right -->
+    <path d="M 35 42 L 70 42 L 70 35 L 85 48 L 70 61 L 70 54 L 35 54 Z"
+          fill="white" opacity="0.95"/>
+
+    <!-- Bottom arrow pointing left -->
+    <path d="M 93 74 L 58 74 L 58 67 L 43 80 L 58 93 L 58 86 L 93 86 Z"
+          fill="white" opacity="0.95"/>
+  </g>
+
+  <!-- Simplified language indicator -->
+  <g>
+    <!-- "A" for source language -->
+    <text x="40" y="50"
+          font-family="Arial, sans-serif"
+          font-size="20"
+          font-weight="bold"
+          fill="#1557b0">A</text>
+
+    <!-- Chinese character for target language -->
+    <text x="75" y="84"
+          font-family="Arial, sans-serif"
+          font-size="18"
+          font-weight="bold"
+          fill="#1557b0">文</text>
+  </g>
+</svg>
