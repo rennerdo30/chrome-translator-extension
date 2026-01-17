@@ -6,9 +6,14 @@ let translatedTexts = new Map();
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'toggleTranslation') {
     toggleTranslation(request.targetLanguage);
+    sendResponse({ success: true, isTranslating });
   } else if (request.action === 'getTranslationStatus') {
     sendResponse({ isTranslating, hasTranslations: translatedTexts.size > 0 });
+  } else if (request.action === 'ping') {
+    // Used to check if content script is loaded
+    sendResponse({ pong: true });
   }
+  return true; // Keep channel open for async responses
 });
 
 function toggleTranslation(targetLanguage) {
@@ -67,6 +72,10 @@ function restoreOriginalText() {
   });
 
   removeHoverListeners();
+
+  // Clear maps to prevent memory leaks
+  originalTexts.clear();
+  translatedTexts.clear();
 }
 
 function getTextNodes(element) {
@@ -259,10 +268,20 @@ async function translateBatchText(combinedText, targetLanguage) {
       text: combinedText,
       targetLanguage: targetLanguage
     }, (response) => {
+      // Check for chrome runtime errors first
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message || 'Message sending failed'));
+        return;
+      }
+      // Validate response exists
+      if (!response) {
+        reject(new Error('No response from background script'));
+        return;
+      }
       if (response.success) {
         resolve(response.translation);
       } else {
-        reject(new Error(response.error));
+        reject(new Error(response.error || 'Unknown translation error'));
       }
     });
   });
@@ -275,10 +294,20 @@ async function translateText(text, targetLanguage) {
       text: text,
       targetLanguage: targetLanguage
     }, (response) => {
+      // Check for chrome runtime errors first
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message || 'Message sending failed'));
+        return;
+      }
+      // Validate response exists
+      if (!response) {
+        reject(new Error('No response from background script'));
+        return;
+      }
       if (response.success) {
         resolve(response.translation);
       } else {
-        reject(new Error(response.error));
+        reject(new Error(response.error || 'Unknown translation error'));
       }
     });
   });

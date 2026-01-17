@@ -65,10 +65,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Event listeners for settings changes
-  providerSelect.addEventListener('change', () => {
+  providerSelect.addEventListener('change', async () => {
     updateProviderUI();
-    updateUrlInputDefault();
-    saveSettings();
+    await updateUrlInputDefault();
+    await saveSettings();
   });
   apiUrlInput.addEventListener('change', saveSettings);
   apiKeyInput.addEventListener('change', saveSettings);
@@ -93,19 +93,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function updateUrlInputDefault() {
+  async function updateUrlInputDefault() {
     const provider = providerSelect.value;
     const defaults = {
       lmstudio: 'http://localhost:1234',
       ollama: 'http://localhost:11434',
       openai: 'https://api.openai.com'
     };
-    apiUrlInput.value = defaults[provider] || '';
+
+    // Load saved URLs to preserve custom URLs when switching providers
+    const saved = await chrome.storage.sync.get(['lmStudioUrl', 'ollamaUrl', 'openaiUrl']);
+
+    if (provider === 'lmstudio') {
+      apiUrlInput.value = saved.lmStudioUrl || defaults.lmstudio;
+    } else if (provider === 'ollama') {
+      apiUrlInput.value = saved.ollamaUrl || defaults.ollama;
+    } else if (provider === 'openai') {
+      apiUrlInput.value = saved.openaiUrl || defaults.openai;
+    } else {
+      apiUrlInput.value = defaults[provider] || '';
+    }
   }
 
   // Translate button
   translateBtn.addEventListener('click', async () => {
-    await saveSettings();
+    const saved = await saveSettings();
+    if (!saved) return; // URL validation failed
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     if (!tab || !tab.id) return;
@@ -145,7 +158,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Refresh models button
   refreshModelsBtn.addEventListener('click', async () => {
-    await saveSettings();
+    const saved = await saveSettings();
+    if (!saved) return; // URL validation failed
 
     // Add spinning animation
     const svg = refreshModelsBtn.querySelector('svg');
@@ -161,7 +175,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (response.success && response.models.length > 0) {
         const modelId = response.models[0].id;
         modelNameInput.value = modelId;
-        saveSettings();
+        await saveSettings();
         showStatus(`Found ${response.models.length} model(s). Selected: ${modelId}`, 'success');
       } else {
         showStatus('No models found', 'error');
@@ -186,7 +200,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
   }
 
+  // Validate URL format
+  function validateUrl(url) {
+    if (!url || url.trim() === '') {
+      return { valid: false, error: 'URL cannot be empty' };
+    }
+
+    const trimmedUrl = url.trim();
+
+    // Must start with http:// or https://
+    if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+      return { valid: false, error: 'URL must start with http:// or https://' };
+    }
+
+    // Try to parse as URL
+    try {
+      const parsed = new URL(trimmedUrl);
+      // Basic sanity check - must have a hostname
+      if (!parsed.hostname) {
+        return { valid: false, error: 'URL must have a valid hostname' };
+      }
+      return { valid: true, url: trimmedUrl };
+    } catch (e) {
+      return { valid: false, error: 'Invalid URL format' };
+    }
+  }
+
   async function saveSettings() {
+    // Validate URL before saving
+    const urlValidation = validateUrl(apiUrlInput.value);
+    if (!urlValidation.valid) {
+      showStatus(urlValidation.error, 'error');
+      return false;
+    }
+
     const settings = {
       provider: providerSelect.value,
       apiKey: apiKeyInput.value,
@@ -194,16 +241,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       targetLanguage: targetLanguageSelect.value
     };
 
-    // Save URL for the specific provider
+    // Save URL for the specific provider (use validated URL)
+    const cleanUrl = urlValidation.url;
     if (providerSelect.value === 'lmstudio') {
-      settings.lmStudioUrl = apiUrlInput.value;
+      settings.lmStudioUrl = cleanUrl;
     } else if (providerSelect.value === 'ollama') {
-      settings.ollamaUrl = apiUrlInput.value;
+      settings.ollamaUrl = cleanUrl;
     } else if (providerSelect.value === 'openai') {
-      settings.openaiUrl = apiUrlInput.value;
+      settings.openaiUrl = cleanUrl;
     }
 
     await chrome.storage.sync.set(settings);
+    return true;
   }
 
   function updateUI(translating, hasTranslations) {
@@ -243,7 +292,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function testConnection() {
-    await saveSettings();
+    const saved = await saveSettings();
+    if (!saved) return; // URL validation failed
     updateConnectionIndicator(null);
     showStatus('Testing connection...', '');
 

@@ -41,6 +41,7 @@
 
     body {
       width: 340px;
+      min-height: fit-content;
       font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       font-size: 13px;
       line-height: 1.5;
@@ -48,6 +49,11 @@
       color: var(--text-primary);
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+    }
+
+    html {
+      height: auto;
+      overflow-y: auto;
     }
 
     /* Header */
@@ -366,7 +372,7 @@
     }
 
     .status-message:empty {
-      display: none;
+      visibility: hidden;
     }
 
     /* Utility */

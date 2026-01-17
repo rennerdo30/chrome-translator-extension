@@ -1,19 +1,38 @@
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.sync.set({
+chrome.runtime.onInstalled.addListener(async () => {
+  // Only set defaults for keys that don't already exist
+  const defaults = {
     provider: 'lmstudio',
     lmStudioUrl: 'http://localhost:1234',
     ollamaUrl: 'http://localhost:11434',
     openaiUrl: 'https://api.openai.com',
     apiKey: '',
     targetLanguage: 'English',
-    enabled: false
-  });
+    model: ''
+  };
 
-  chrome.contextMenus.create({
-    id: "translatePage",
-    title: "Translate with AI",
-    contexts: ["page", "selection"]
-  });
+  const existing = await chrome.storage.sync.get(Object.keys(defaults));
+  const toSet = {};
+
+  for (const [key, defaultValue] of Object.entries(defaults)) {
+    if (existing[key] === undefined) {
+      toSet[key] = defaultValue;
+    }
+  }
+
+  if (Object.keys(toSet).length > 0) {
+    await chrome.storage.sync.set(toSet);
+  }
+
+  // Create context menu (use try-catch in case it already exists)
+  try {
+    chrome.contextMenus.create({
+      id: "translatePage",
+      title: "Translate with AI",
+      contexts: ["page", "selection"]
+    });
+  } catch (e) {
+    // Menu already exists, ignore
+  }
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -85,6 +104,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     detectLanguage(request.text)
       .then(language => sendResponse({ success: true, language }))
       .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Keep channel open for async response
   } else if (request.action === 'getModels') {
     fetchModels(request.settings)
       .then(models => sendResponse({ success: true, models }))
@@ -122,6 +142,91 @@ async function getProviderSettings() {
   return { baseUrl, headers, model: settings.model, provider: settings.provider };
 }
 
+// Helper function to construct the correct API endpoint URL
+// Handles cases where user enters full URL with /v1 already included
+function getApiEndpoint(baseUrl, endpoint = '/v1/chat/completions') {
+  // Normalize the base URL
+  let url = baseUrl.trim();
+  if (url.endsWith('/')) {
+    url = url.slice(0, -1);
+  }
+
+  // Check if the URL already contains /v1 path
+  // Common patterns: /v1, /api/v1, /v1/chat, etc.
+  const hasV1Path = /\/v1(\/|$)/.test(url);
+
+  if (hasV1Path) {
+    // URL already contains /v1, check if it has the full endpoint
+    if (url.endsWith('/chat/completions')) {
+      return url;
+    }
+    if (url.endsWith('/v1')) {
+      return `${url}/chat/completions`;
+    }
+    // URL has /v1 somewhere but might have more path - append remaining
+    // e.g., https://api.example.com/api/v1 -> https://api.example.com/api/v1/chat/completions
+    if (!url.includes('/chat/completions')) {
+      return `${url}/chat/completions`;
+    }
+    return url;
+  }
+
+  // No /v1 in URL, append the full endpoint
+  return `${url}${endpoint}`;
+}
+
+// Helper function to format API errors with helpful messages
+function formatApiError(status, errorText) {
+  const errorBody = errorText ? ` - ${errorText.substring(0, 200)}` : '';
+
+  switch (status) {
+    case 401:
+      return `Authentication failed (401). Please check your API key.${errorBody}`;
+    case 403:
+      return `Access forbidden (403). Your API key may not have permission or billing may be disabled.${errorBody}`;
+    case 404:
+      return `Endpoint not found (404). Please verify the API URL is correct.${errorBody}`;
+    case 405:
+      return `Method not allowed (405). The API URL may be incorrect or the endpoint doesn't support this request.${errorBody}`;
+    case 429:
+      return `Rate limit exceeded (429). Please wait before making more requests.${errorBody}`;
+    case 500:
+    case 502:
+    case 503:
+      return `Server error (${status}). The AI service may be temporarily unavailable.${errorBody}`;
+    default:
+      return `API error (${status})${errorBody}`;
+  }
+}
+
+// Helper function to construct models endpoint URL
+function getModelsEndpoint(baseUrl) {
+  let url = baseUrl.trim();
+  if (url.endsWith('/')) {
+    url = url.slice(0, -1);
+  }
+
+  const hasV1Path = /\/v1(\/|$)/.test(url);
+
+  if (hasV1Path) {
+    // URL contains /v1, extract base and append /models
+    if (url.endsWith('/v1')) {
+      return `${url}/models`;
+    }
+    // URL has /v1 somewhere in the middle (e.g., /api/v1)
+    // Find the /v1 part and append /models after it
+    const v1Index = url.lastIndexOf('/v1');
+    const afterV1 = url.substring(v1Index + 3);
+    if (afterV1 === '' || afterV1 === '/') {
+      return `${url.substring(0, v1Index + 3)}/models`;
+    }
+    // Has more path after /v1, just append /models to base v1 path
+    return `${url.substring(0, v1Index + 3)}/models`;
+  }
+
+  return `${url}/v1/models`;
+}
+
 async function fetchModels(settings) {
   try {
     const controller = new AbortController();
@@ -148,8 +253,8 @@ async function fetchModels(settings) {
 
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
-    // Try /v1/models endpoint first (standard OpenAI format)
-    let endpoint = `${baseUrl}/v1/models`;
+    // Use helper to construct correct models endpoint
+    let endpoint = getModelsEndpoint(baseUrl);
 
     try {
       const response = await fetch(endpoint, {
@@ -200,12 +305,18 @@ async function fetchModels(settings) {
 }
 
 async function detectLanguage(text) {
+  const TIMEOUT_MS = 30000; // 30 second timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   try {
     const { baseUrl, headers, model } = await getProviderSettings();
+    const apiEndpoint = getApiEndpoint(baseUrl);
 
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const response = await fetch(apiEndpoint, {
       method: 'POST',
       headers: headers,
+      signal: controller.signal,
       body: JSON.stringify({
         model: model || "local-model",
         messages: [
@@ -223,24 +334,37 @@ async function detectLanguage(text) {
       })
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+      const errorText = await response.text().catch(() => '');
+      throw new Error(formatApiError(response.status, errorText));
     }
 
     const data = await response.json();
     return data.choices[0].message.content.trim();
   } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Language detection timed out. The AI server may be slow or unresponsive.');
+    }
     throw new Error(`Language detection failed: ${error.message}`);
   }
 }
 
 async function translateBatchText(combinedText, targetLanguage) {
+  const TIMEOUT_MS = 60000; // 60 second timeout for batch (larger content)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   try {
     const { baseUrl, headers, model } = await getProviderSettings();
+    const apiEndpoint = getApiEndpoint(baseUrl);
 
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const response = await fetch(apiEndpoint, {
       method: 'POST',
       headers: headers,
+      signal: controller.signal,
       body: JSON.stringify({
         model: model || "local-model",
         messages: [
@@ -257,24 +381,37 @@ async function translateBatchText(combinedText, targetLanguage) {
       })
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+      const errorText = await response.text().catch(() => '');
+      throw new Error(formatApiError(response.status, errorText));
     }
 
     const data = await response.json();
     return data.choices[0].message.content.trim();
   } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Translation timed out. The AI server may be slow or unresponsive.');
+    }
     throw new Error(`Batch translation failed: ${error.message}`);
   }
 }
 
 async function translateText(text, targetLanguage) {
+  const TIMEOUT_MS = 30000; // 30 second timeout for single text
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   try {
     const { baseUrl, headers, model } = await getProviderSettings();
+    const apiEndpoint = getApiEndpoint(baseUrl);
 
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const response = await fetch(apiEndpoint, {
       method: 'POST',
       headers: headers,
+      signal: controller.signal,
       body: JSON.stringify({
         model: model || "local-model",
         messages: [
@@ -291,13 +428,20 @@ async function translateText(text, targetLanguage) {
       })
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+      const errorText = await response.text().catch(() => '');
+      throw new Error(formatApiError(response.status, errorText));
     }
 
     const data = await response.json();
     return data.choices[0].message.content.trim();
   } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Translation timed out. The AI server may be slow or unresponsive.');
+    }
     throw new Error(`Translation failed: ${error.message}`);
   }
 }
