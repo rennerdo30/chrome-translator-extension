@@ -1,296 +1,322 @@
-# 🌐 AI Translator - Chrome Extension
+# AI Translator - Browser Extension
 
 <div align="center">
   <img src="icons/icon128.png" alt="AI Translator Logo" width="128" height="128">
 
-  <p><strong>Translate web pages using local AI models or OpenAI</strong></p>
+  **Privacy-first web page translation using local AI models or cloud APIs**
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-  [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green.svg)](https://chrome.google.com/webstore)
+  [![Chrome](https://img.shields.io/badge/Chrome-Supported-green.svg)](https://chrome.google.com/webstore)
+  [![Firefox](https://img.shields.io/badge/Firefox-Supported-orange.svg)](https://addons.mozilla.org)
+  [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg)](https://developer.chrome.com/docs/extensions/mv3/)
 </div>
 
 ---
 
-## ✨ Features
+## Overview
 
-- 🤖 **Multiple AI Providers**: Support for LM Studio, Ollama, and OpenAI
-- 🌍 **12+ Languages**: Translate to English, Spanish, French, German, Japanese, and more
-- 🎨 **Visual Highlighting**: Translated text is highlighted for easy identification
-- ⚡ **Fast Toggle**: Instantly switch between original and translated text
-- 🔒 **Privacy First**: Use local models for complete privacy
-- 🎯 **Smart Detection**: Automatically detects translatable content
-- 🔄 **Batch Translation**: Efficiently translates multiple text segments at once
-- 🎛️ **Flexible Configuration**: Easy provider switching and model selection
+AI Translator is a browser extension that translates web pages using AI language models. It supports both **local AI models** (LM Studio, Ollama) for complete privacy and **cloud APIs** (OpenAI, OpenRouter) for convenience.
 
-## 📸 Screenshots
+### Key Features
 
-<div align="center">
-  <img src="docs/screenshot-popup.png" alt="Extension Popup" width="400">
-  <img src="docs/screenshot-translated.png" alt="Translated Page" width="400">
-</div>
+- **Multiple AI Providers**: LM Studio, Ollama, OpenAI, and OpenRouter compatible
+- **16+ Languages**: English, Spanish, French, German, Japanese, Chinese, and more
+- **Privacy-First**: Use local models for complete data privacy
+- **Visual Highlighting**: Translated text is highlighted with hover-to-see-original
+- **Batch Translation**: Efficient translation of entire pages
+- **Smart Detection**: Automatically identifies translatable content
+- **Cross-Browser**: Works on Chrome, Edge, Brave, and Firefox
 
-## 🚀 Quick Start
+---
 
-### Prerequisites
+## Installation
 
-Choose one of the following AI providers:
+### From Source (Development)
 
-#### Option 1: LM Studio (Recommended for privacy)
-1. Download and install [LM Studio](https://lmstudio.ai/)
-2. Load a model suitable for translation (e.g., Mistral, Llama 3, etc.)
-3. Go to the "Local Server" tab and start the server (default: `http://localhost:1234`)
-4. Ensure "Enable CORS" is checked
-
-#### Option 2: Ollama
-1. Install [Ollama](https://ollama.ai/)
-2. Pull a model: `ollama pull llama3`
-3. Set environment variable to allow browser access:
+1. **Clone the repository**:
    ```bash
-   export OLLAMA_ORIGINS="*"
-   ```
-4. Start Ollama (default: `http://localhost:11434`)
-
-#### Option 3: OpenAI
-1. Get an API key from [OpenAI Platform](https://platform.openai.com/)
-2. Have your API key ready (starts with `sk-...`)
-
-### Installation
-
-1. **Clone or Download** this repository:
-   ```bash
-   git clone https://github.com/yourusername/ai-translator-extension.git
-   cd ai-translator-extension
+   git clone https://github.com/rennerdo30/chrome-translator-extension.git
+   cd chrome-translator-extension
    ```
 
-2. **Install Dependencies** (for icon generation):
+2. **Install dependencies** (optional, for icon generation):
    ```bash
    npm install
    ```
 
-3. **Load Extension in Chrome**:
-   - Open Chrome and navigate to `chrome://extensions/`
-   - Enable "Developer mode" (toggle in top right)
+3. **Load in Chrome/Edge/Brave**:
+   - Navigate to `chrome://extensions/` (or `edge://extensions/`)
+   - Enable "Developer mode"
    - Click "Load unpacked"
    - Select the extension folder
-   - The extension icon should appear in your toolbar
 
-## 📖 Usage
+4. **Load in Firefox**:
+   - Navigate to `about:debugging#/runtime/this-firefox`
+   - Click "Load Temporary Add-on"
+   - Select `manifest.json`
 
-### Configuration
+---
 
-1. Click the extension icon in your Chrome toolbar
-2. Select your **Provider** (LM Studio, Ollama, or OpenAI)
-3. Enter the **API URL**:
-   - LM Studio: `http://localhost:1234` (default)
-   - Ollama: `http://localhost:11434` (default)
-   - OpenAI: `https://api.openai.com` (default)
-4. For OpenAI, enter your **API Key**
-5. (Optional) Enter a specific **Model Name** or click refresh to auto-detect
-6. Select your **Target Language**
-7. Click **Test Connection** to verify everything works
+## Configuration
+
+### Supported AI Providers
+
+| Provider | Type | Default URL | API Key Required |
+|----------|------|-------------|------------------|
+| LM Studio | Local | `http://localhost:1234` | No |
+| Ollama | Local | `http://localhost:11434` | No |
+| OpenAI | Cloud | `https://api.openai.com` | Yes |
+| OpenRouter | Cloud | `https://openrouter.ai/api/v1` | Yes |
+
+### Setting Up Local Providers
+
+#### LM Studio
+
+1. Download [LM Studio](https://lmstudio.ai/)
+2. Load a translation-capable model (Mistral, Llama 3, Qwen, etc.)
+3. Start the local server (Local Server tab)
+4. **Important**: Enable CORS in server settings
+
+#### Ollama
+
+1. Install [Ollama](https://ollama.ai/)
+2. Pull a model: `ollama pull llama3.2`
+3. Enable browser access:
+   ```bash
+   # Linux/macOS
+   export OLLAMA_ORIGINS="*"
+   ollama serve
+
+   # Windows PowerShell
+   $env:OLLAMA_ORIGINS="*"
+   ollama serve
+   ```
+
+### Setting Up Cloud Providers
+
+#### OpenAI
+
+1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+2. Select "OpenAI" as provider in the extension
+3. Enter your API key (starts with `sk-`)
+
+#### OpenRouter
+
+1. Get an API key from [OpenRouter](https://openrouter.ai/keys)
+2. Select "OpenAI" as provider (OpenRouter uses OpenAI-compatible API)
+3. Set URL to `https://openrouter.ai/api/v1`
+4. Enter your OpenRouter API key
+
+---
+
+## Usage
 
 ### Translating a Page
 
-**Method 1: Right-click Menu**
-- Navigate to any web page
-- Right-click anywhere on the page
-- Select "Translate with AI"
+**Option 1: Extension Popup**
+1. Click the extension icon in your toolbar
+2. Select your target language
+3. Click "Translate Page"
 
-**Method 2: Extension Popup**
-- Click the extension icon
-- Click "Translate Page"
+**Option 2: Context Menu**
+1. Right-click anywhere on the page
+2. Select "Translate with AI"
 
-**Restore Original**
-- Click the extension icon
-- Click "Restore Original"
+### Viewing Original Text
 
-## 🏗️ Architecture
+- **Hover** over any translated text to see the original in a tooltip
+- Click "Restore Original" in the popup to revert all translations
+
+### Testing Connection
+
+1. Open the extension popup
+2. Click "Test Connection"
+3. A green indicator shows successful connection
+
+---
+
+## Supported Languages
+
+| Language | Language | Language | Language |
+|----------|----------|----------|----------|
+| English | Spanish | French | German |
+| Italian | Portuguese | Russian | Japanese |
+| Korean | Chinese | Arabic | Hindi |
+| Dutch | Polish | Turkish | Vietnamese |
+
+---
+
+## Architecture
 
 ```
-┌─────────────────┐
-│   popup.html    │ ← User Interface
-│   popup.js      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  background.js  │ ← Service Worker (API calls)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   content.js    │ ← Page Manipulation
-│   content.css   │
-└─────────────────┘
+┌─────────────────────────────────────┐
+│         popup.html/js               │  User Interface
+│  - Settings management              │
+│  - Provider selection               │
+│  - Connection testing               │
+└─────────────┬───────────────────────┘
+              │ chrome.runtime.sendMessage()
+              ▼
+┌─────────────────────────────────────┐
+│         background.js               │  Service Worker
+│  - API communication                │
+│  - Translation logic                │
+│  - Model detection                  │
+└─────────────┬───────────────────────┘
+              │ chrome.tabs.sendMessage()
+              ▼
+┌─────────────────────────────────────┐
+│         content.js/css              │  Content Script
+│  - DOM traversal                    │
+│  - Text extraction                  │
+│  - Translation rendering            │
+└─────────────────────────────────────┘
 ```
 
-### Key Components
-
-- **Service Worker** (`background.js`): Handles all API communication with AI providers
-- **Content Script** (`content.js`): Extracts and replaces text in web pages
-- **Popup Interface** (`popup.html/js`): User controls and settings
-- **Storage**: Chrome sync storage for persistent settings
-
-## 🛠️ Development
-
-### Project Structure
+### File Structure
 
 ```
 chrome-translator-extension/
-├── manifest.json          # Extension configuration
-├── background.js          # Service worker for API calls
-├── content.js            # Content script for DOM manipulation
-├── content.css           # Styles for translated elements
-├── popup.html            # Extension popup UI
-├── popup.js              # Popup functionality
-├── icons/                # Extension icons
-│   ├── icon.svg         # Source SVG icon
-│   ├── icon16.png       # 16x16 PNG
-│   ├── icon48.png       # 48x48 PNG
-│   └── icon128.png      # 128x128 PNG
-├── generate-icons.js     # Script to generate PNGs from SVG
-├── package.json          # Node.js dependencies
-├── LICENSE               # MIT License
-├── README.md             # This file
-└── CLAUDE.md             # AI assistant guidance
+├── manifest.json        # Extension configuration (Manifest V3)
+├── background.js        # Service worker for API calls
+├── content.js           # Content script for DOM manipulation
+├── content.css          # Styles for translated elements
+├── popup.html           # Extension popup UI with embedded CSS
+├── popup.js             # Popup functionality
+├── icons/               # Extension icons (16, 48, 128px)
+├── CLAUDE.md            # AI assistant development guide
+├── SPECIFICATION.md     # Technical specification
+├── CONTRIBUTING.md      # Contribution guidelines
+├── LICENSE              # MIT License
+└── README.md            # This file
 ```
 
-### Making Changes
+---
 
-1. **Edit Files**: Modify JavaScript, HTML, or CSS files
-2. **Reload Extension**:
-   - Go to `chrome://extensions/`
-   - Click the reload icon on your extension
-3. **Test Changes**: Open a web page and test translation
+## Development
 
-### Regenerating Icons
+### Prerequisites
 
-If you modify `icons/icon.svg`:
+- Node.js 18+ (for icon generation)
+- Chrome, Edge, or Firefox browser
+
+### Local Development
 
 ```bash
+# Clone repository
+git clone https://github.com/rennerdo30/chrome-translator-extension.git
+cd chrome-translator-extension
+
+# Install dependencies
+npm install
+
+# Regenerate icons (if modified)
 npm run generate-icons
 ```
 
-### Adding Languages
+### Testing Changes
 
-Edit `popup.html` and add options to the `targetLanguage` select element:
+1. Make your code changes
+2. Go to `chrome://extensions/`
+3. Click the reload icon on the extension
+4. Test on a web page
 
-```html
-<option value="YourLanguage">Your Language</option>
-```
+### Debugging
 
-### Customizing Translation Prompts
+- **Service Worker**: `chrome://extensions/` → Details → Inspect views: service worker
+- **Content Script**: Open DevTools (F12) on any page
+- **Popup**: Right-click extension icon → Inspect popup
 
-Edit the system prompts in `background.js`:
+---
 
-```javascript
-content: `You are a professional translator. Translate to ${targetLanguage}...`
-```
+## Troubleshooting
 
-## 🔧 Advanced Configuration
+### "Connection Failed" Error
 
-### Model Selection
+| Cause | Solution |
+|-------|----------|
+| Provider not running | Start LM Studio/Ollama server |
+| Wrong URL | Verify the API endpoint URL |
+| CORS blocked | Enable CORS in LM Studio; set `OLLAMA_ORIGINS="*"` for Ollama |
+| Invalid API key | Check your OpenAI/OpenRouter API key |
 
-The extension can auto-detect loaded models or you can manually specify:
+### "405 Method Not Allowed" Error
 
-1. Click the refresh icon next to the Model field
-2. Or manually enter a model name (e.g., `mistral-7b-instruct`)
-
-### Custom Endpoints
-
-You can use custom API endpoints compatible with OpenAI's chat completions format:
-
-1. Select "OpenAI" as provider
-2. Enter your custom endpoint URL
-3. Add your API key if required
-
-### Environment Variables (Ollama)
-
-For Ollama to work with browser extensions, set:
-
-```bash
-# Linux/Mac
-export OLLAMA_ORIGINS="*"
-
-# Windows (PowerShell)
-$env:OLLAMA_ORIGINS="*"
-```
-
-## 🐛 Troubleshooting
-
-### Connection Issues
-
-**Problem**: "Connection failed" error
-
-**Solutions**:
-- ✅ Ensure your AI provider is running
-- ✅ Check the URL is correct
-- ✅ For LM Studio, verify CORS is enabled
-- ✅ For Ollama, set `OLLAMA_ORIGINS="*"`
-- ✅ For OpenAI, verify your API key is valid
+This usually means the URL path is incorrect. The extension now handles this automatically, but ensure:
+- LM Studio: `http://localhost:1234` (not `/v1/...`)
+- Ollama: `http://localhost:11434` (not `/api/...`)
+- OpenRouter: `https://openrouter.ai/api/v1`
 
 ### Translation Not Working
 
-**Problem**: Page doesn't translate
-
-**Solutions**:
-- ✅ Refresh the page and try again
-- ✅ Check if the page is a restricted page (`chrome://`, `edge://`)
-- ✅ Open Chrome DevTools (F12) and check for errors
-- ✅ Verify the model is loaded (for LM Studio/Ollama)
+1. Refresh the page and try again
+2. Check if it's a restricted page (`chrome://`, `edge://`, `about:`)
+3. Verify a model is loaded (for local providers)
+4. Check DevTools console for errors
 
 ### Slow Translation
 
-**Problem**: Translation takes too long
+- Use a smaller/faster model
+- Check GPU utilization for local models
+- Consider using a cloud provider for large pages
 
-**Solutions**:
-- ✅ Use a smaller/faster model
-- ✅ Reduce the amount of text on the page
-- ✅ Check your computer's GPU/CPU usage
-- ✅ For OpenAI, check your internet connection
+---
 
-### API Key Not Saved
+## API Compatibility
 
-**Problem**: API key keeps disappearing
+This extension works with any API that implements the OpenAI Chat Completions format:
 
-**Solutions**:
-- ✅ Ensure you click away from the field or press Enter to save
-- ✅ Check Chrome sync is enabled in Chrome settings
-- ✅ Try toggling the provider and back
+```
+POST /v1/chat/completions
+{
+  "model": "model-name",
+  "messages": [
+    {"role": "system", "content": "..."},
+    {"role": "user", "content": "..."}
+  ]
+}
+```
 
-## 🤝 Contributing
+Compatible services include:
+- OpenAI API
+- OpenRouter
+- Azure OpenAI
+- Local servers (LM Studio, Ollama, llama.cpp, vLLM)
+- Any OpenAI-compatible proxy
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+---
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Make your changes
+4. Run tests and verify functionality
+5. Commit: `git commit -m 'feat: add amazing feature'`
+6. Push: `git push origin feature/amazing-feature`
+7. Open a Pull Request
 
-## 📄 License
+---
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## License
 
-## 🙏 Acknowledgments
+This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
 
-- Icons designed with modern gradient aesthetics
-- Built with Chrome Extension Manifest V3
-- Compatible with OpenAI-style APIs
-- Inspired by the need for privacy-preserving translation tools
+---
 
-## 🔗 Links
+## Links
 
-- [Report a Bug](../../issues)
-- [Request a Feature](../../issues)
-- [LM Studio Documentation](https://lmstudio.ai/docs)
-- [Ollama Documentation](https://ollama.ai/docs)
-- [OpenAI API Documentation](https://platform.openai.com/docs)
+- [Report a Bug](https://github.com/rennerdo30/chrome-translator-extension/issues)
+- [Request a Feature](https://github.com/rennerdo30/chrome-translator-extension/issues)
+- [LM Studio](https://lmstudio.ai/)
+- [Ollama](https://ollama.ai/)
+- [OpenAI API](https://platform.openai.com/docs)
+- [OpenRouter](https://openrouter.ai/)
 
 ---
 
 <div align="center">
-  Made with ❤️ for privacy-conscious users
-
-  ⭐ Star this repo if you find it useful!
+  <strong>Privacy-first translation for everyone</strong>
 </div>

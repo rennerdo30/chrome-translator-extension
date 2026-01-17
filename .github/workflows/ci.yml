@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate manifest.json
+        run: |
+          echo "Validating manifest.json..."
+          node -e "
+            const fs = require('fs');
+            const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+
+            // Check required fields
+            const required = ['manifest_version', 'name', 'version', 'description'];
+            for (const field of required) {
+              if (!manifest[field]) {
+                console.error('Missing required field:', field);
+                process.exit(1);
+              }
+            }
+
+            // Validate manifest version
+            if (manifest.manifest_version !== 3) {
+              console.error('Expected manifest_version 3, got:', manifest.manifest_version);
+              process.exit(1);
+            }
+
+            // Validate version format
+            if (!/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+              console.error('Invalid version format:', manifest.version);
+              process.exit(1);
+            }
+
+            console.log('manifest.json is valid');
+            console.log('  Name:', manifest.name);
+            console.log('  Version:', manifest.version);
+            console.log('  Manifest Version:', manifest.manifest_version);
+          "
+
+      - name: Check JavaScript syntax
+        run: |
+          echo "Checking JavaScript syntax..."
+          for file in background.js content.js popup.js; do
+            echo "  Checking $file..."
+            node --check "$file"
+          done
+          echo "All JavaScript files have valid syntax"
+
+      - name: Validate HTML
+        run: |
+          echo "Validating popup.html structure..."
+          node -e "
+            const fs = require('fs');
+            const html = fs.readFileSync('popup.html', 'utf8');
+
+            // Check for required elements
+            const requiredIds = ['provider', 'apiUrl', 'apiKey', 'modelName', 'targetLanguage', 'translateBtn'];
+            for (const id of requiredIds) {
+              if (!html.includes('id=\"' + id + '\"')) {
+                console.error('Missing required element with id:', id);
+                process.exit(1);
+              }
+            }
+
+            // Check script reference
+            if (!html.includes('src=\"popup.js\"')) {
+              console.error('Missing popup.js script reference');
+              process.exit(1);
+            }
+
+            console.log('popup.html structure is valid');
+          "
+
+      - name: Check for required files
+        run: |
+          echo "Checking for required files..."
+          required_files=(
+            "manifest.json"
+            "background.js"
+            "content.js"
+            "content.css"
+            "popup.html"
+            "popup.js"
+            "icons/icon16.png"
+            "icons/icon48.png"
+            "icons/icon128.png"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Missing required file: $file"
+              exit 1
+            fi
+            echo "  ✓ $file"
+          done
+          echo "All required files present"
+
+  build:
+    name: Build Extension
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create extension package
+        run: |
+          mkdir -p dist
+          zip -r dist/ai-translator-extension.zip \
+            manifest.json \
+            background.js \
+            content.js \
+            content.css \
+            popup.html \
+            popup.js \
+            icons/ \
+            -x "*.git*" \
+            -x "*.DS_Store"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-package
+          path: dist/ai-translator-extension.zip
+          retention-days: 7
+
+      - name: Display package info
+        run: |
+          echo "Package created successfully"
+          ls -la dist/
+          unzip -l dist/ai-translator-extension.zip

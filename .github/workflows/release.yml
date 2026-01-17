@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Validate version matches manifest
+        run: |
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          TAG_VERSION=${{ steps.version.outputs.version }}
+
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "Version mismatch!"
+            echo "  manifest.json: $MANIFEST_VERSION"
+            echo "  Git tag: $TAG_VERSION"
+            exit 1
+          fi
+
+          echo "Version validated: $TAG_VERSION"
+
+      - name: Create Chrome extension package
+        run: |
+          mkdir -p dist
+
+          # Create Chrome/Edge package
+          zip -r dist/ai-translator-chrome-v${{ steps.version.outputs.version }}.zip \
+            manifest.json \
+            background.js \
+            content.js \
+            content.css \
+            popup.html \
+            popup.js \
+            icons/ \
+            -x "*.git*" \
+            -x "*.DS_Store"
+
+      - name: Create Firefox extension package
+        run: |
+          # Firefox uses the same files but needs id in manifest
+          # The browser_specific_settings in manifest.json handles this
+          zip -r dist/ai-translator-firefox-v${{ steps.version.outputs.version }}.zip \
+            manifest.json \
+            background.js \
+            content.js \
+            content.css \
+            popup.html \
+            popup.js \
+            icons/ \
+            -x "*.git*" \
+            -x "*.DS_Store"
+
+      - name: Create source archive
+        run: |
+          git archive --format=zip --prefix=ai-translator-v${{ steps.version.outputs.version }}/ \
+            -o dist/ai-translator-source-v${{ steps.version.outputs.version }}.zip HEAD
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.zip > checksums-v${{ steps.version.outputs.version }}.txt
+          cat checksums-v${{ steps.version.outputs.version }}.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: AI Translator v${{ steps.version.outputs.version }}
+          body: |
+            ## AI Translator v${{ steps.version.outputs.version }}
+
+            ### Installation
+
+            **Chrome / Edge / Brave:**
+            1. Download `ai-translator-chrome-v${{ steps.version.outputs.version }}.zip`
+            2. Extract the ZIP file
+            3. Go to `chrome://extensions/`
+            4. Enable "Developer mode"
+            5. Click "Load unpacked" and select the extracted folder
+
+            **Firefox:**
+            1. Download `ai-translator-firefox-v${{ steps.version.outputs.version }}.zip`
+            2. Go to `about:debugging#/runtime/this-firefox`
+            3. Click "Load Temporary Add-on"
+            4. Select the ZIP file
+
+            ### Checksums (SHA-256)
+            See `checksums-v${{ steps.version.outputs.version }}.txt` for file verification.
+
+            ### What's Changed
+            See the [full changelog](https://github.com/${{ github.repository }}/commits/v${{ steps.version.outputs.version }}) for details.
+
+          files: |
+            dist/ai-translator-chrome-v${{ steps.version.outputs.version }}.zip
+            dist/ai-translator-firefox-v${{ steps.version.outputs.version }}.zip
+            dist/ai-translator-source-v${{ steps.version.outputs.version }}.zip
+            dist/checksums-v${{ steps.version.outputs.version }}.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+      - name: Upload Chrome artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension-v${{ steps.version.outputs.version }}
+          path: dist/ai-translator-chrome-v${{ steps.version.outputs.version }}.zip
+
+      - name: Upload Firefox artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-extension-v${{ steps.version.outputs.version }}
+          path: dist/ai-translator-firefox-v${{ steps.version.outputs.version }}.zip
