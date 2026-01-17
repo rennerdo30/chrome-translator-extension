@@ -125,7 +125,7 @@ async function getProviderSettings() {
 async function fetchModels(settings) {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     let baseUrl = '';
     let headers = { 'Content-Type': 'application/json' };
@@ -136,7 +136,9 @@ async function fetchModels(settings) {
         break;
       case 'openai':
         baseUrl = settings.openaiUrl || 'https://api.openai.com';
-        headers['Authorization'] = `Bearer ${settings.apiKey}`;
+        if (settings.apiKey) {
+          headers['Authorization'] = `Bearer ${settings.apiKey}`;
+        }
         break;
       case 'lmstudio':
       default:
@@ -146,21 +148,52 @@ async function fetchModels(settings) {
 
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
-    // Ollama uses /api/tags for models, but also supports /v1/models in newer versions
-    // We'll try /v1/models first as it's standard
+    // Try /v1/models endpoint first (standard OpenAI format)
     let endpoint = `${baseUrl}/v1/models`;
 
-    const response = await fetch(endpoint, {
-      headers,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+    try {
+      const response = await fetch(endpoint, {
+        headers,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch models: ${response.status}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.data || [];
+      }
+
+      // If /v1/models fails with 404, try Ollama's /api/tags endpoint
+      if (response.status === 404 && settings.provider === 'ollama') {
+        const ollamaResponse = await fetch(`${baseUrl}/api/tags`, {
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal
+        });
+        if (ollamaResponse.ok) {
+          const ollamaData = await ollamaResponse.json();
+          // Convert Ollama format to OpenAI format
+          return (ollamaData.models || []).map(m => ({ id: m.name, object: 'model' }));
+        }
+      }
+
+      // For OpenAI-compatible APIs (OpenRouter, Together, etc.) that don't have /models endpoint
+      // Just return an empty array but don't throw - the API might still work for chat
+      if (response.status === 404 && settings.provider === 'openai') {
+        // Return a placeholder to indicate the API is likely accessible
+        // User needs to manually specify the model name
+        return [{ id: settings.model || 'manual-model', object: 'model', note: 'Specify model manually' }];
+      }
+
+      throw new Error(`HTTP ${response.status}`);
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+
+      // If it's an abort error, provide a clearer message
+      if (fetchError.name === 'AbortError') {
+        throw new Error('Connection timeout');
+      }
+      throw fetchError;
     }
-    const data = await response.json();
-    return data.data || [];
   } catch (error) {
     throw new Error(`Failed to connect to ${settings.provider}: ${error.message}`);
   }
