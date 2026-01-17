@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Translator",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Translate web pages using local AI models (LM Studio, Ollama) or cloud APIs (OpenAI, OpenRouter)",
   "permissions": [
     "activeTab",
