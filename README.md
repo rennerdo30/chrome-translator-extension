@@ -39,18 +39,15 @@ AI Translator is a browser extension that translates web pages using AI language
    cd chrome-translator-extension
    ```
 
-2. **Install dependencies** (optional, for icon generation):
-   ```bash
-   npm install
-   ```
+   There is no build step — the extension loads straight from the source folder.
 
-3. **Load in Chrome/Edge/Brave**:
+2. **Load in Chrome/Edge/Brave**:
    - Navigate to `chrome://extensions/` (or `edge://extensions/`)
    - Enable "Developer mode"
    - Click "Load unpacked"
    - Select the extension folder
 
-4. **Load in Firefox**:
+3. **Load in Firefox**:
    - Navigate to `about:debugging#/runtime/this-firefox`
    - Click "Load Temporary Add-on"
    - Select `manifest.json`
@@ -184,7 +181,6 @@ chrome-translator-extension/
 ├── popup.html           # Extension popup UI with embedded CSS
 ├── popup.js             # Popup functionality
 ├── icons/               # Extension icons (16, 48, 128px)
-├── CLAUDE.md            # AI assistant development guide
 ├── SPECIFICATION.md     # Technical specification
 ├── CONTRIBUTING.md      # Contribution guidelines
 ├── LICENSE              # MIT License
@@ -197,22 +193,10 @@ chrome-translator-extension/
 
 ### Prerequisites
 
-- Node.js 18+ (for icon generation)
-- Chrome, Edge, or Firefox browser
+- Chrome, Edge, Brave or Firefox
+- A running AI provider (local or cloud) to translate against
 
-### Local Development
-
-```bash
-# Clone repository
-git clone https://github.com/rennerdo30/chrome-translator-extension.git
-cd chrome-translator-extension
-
-# Install dependencies
-npm install
-
-# Regenerate icons (if modified)
-npm run generate-icons
-```
+Plain JavaScript, HTML and CSS — no bundler, no dependencies, nothing to install.
 
 ### Testing Changes
 
