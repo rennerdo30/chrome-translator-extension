@@ -6,8 +6,6 @@
   **Privacy-first web page translation using local AI models or cloud APIs**
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-  [![Chrome](https://img.shields.io/badge/Chrome-Supported-green.svg)](https://chrome.google.com/webstore)
-  [![Firefox](https://img.shields.io/badge/Firefox-Supported-orange.svg)](https://addons.mozilla.org)
   [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg)](https://developer.chrome.com/docs/extensions/mv3/)
 </div>
 
@@ -15,17 +13,19 @@
 
 ## Overview
 
-AI Translator is a browser extension that translates web pages using AI language models. It supports both **local AI models** (LM Studio, Ollama) for complete privacy and **cloud APIs** (OpenAI, OpenRouter) for convenience.
+AI Translator is a Chromium browser extension that translates web pages using AI language models. It supports both **local AI models** (LM Studio, Ollama) for complete privacy and **cloud APIs** (OpenAI, OpenRouter) for convenience.
+
+Text nodes are collected from the page, sent to the configured chat-completions endpoint in batches, and replaced in place with the translation — the original stays available on hover and can be restored in one click.
 
 ### Key Features
 
-- **Multiple AI Providers**: LM Studio, Ollama, OpenAI, and OpenRouter compatible
-- **16+ Languages**: English, Spanish, French, German, Japanese, Chinese, and more
-- **Privacy-First**: Use local models for complete data privacy
+- **Multiple AI Providers**: LM Studio, Ollama, OpenAI, and any OpenAI-compatible endpoint (OpenRouter, proxies, …)
+- **16 Target Languages**: English, Spanish, French, German, Japanese, Chinese, and more
+- **Privacy-First**: Use local models so page content never leaves your machine
 - **Visual Highlighting**: Translated text is highlighted with hover-to-see-original
-- **Batch Translation**: Efficient translation of entire pages
-- **Smart Detection**: Automatically identifies translatable content
-- **Cross-Browser**: Works on Chrome, Edge, Brave, and Firefox
+- **Batch Translation**: Page text is sent in batches of 10 chunks per request, with an in-page progress bar you can stop at any time
+- **Resilient**: A batch whose response does not line up is retried, then falls back to translating each chunk individually
+- **Smart Detection**: Skips `<script>`, `<style>`, `<noscript>`, editable fields, whitespace, pure numbers and text that already looks like the target language
 
 ---
 
@@ -47,10 +47,11 @@ AI Translator is a browser extension that translates web pages using AI language
    - Click "Load unpacked"
    - Select the extension folder
 
-3. **Load in Firefox**:
-   - Navigate to `about:debugging#/runtime/this-firefox`
-   - Click "Load Temporary Add-on"
-   - Select `manifest.json`
+### Browser support
+
+Chrome, Edge and Brave (any Chromium browser with Manifest V3) are supported.
+
+Firefox is **not** working yet, even though `manifest.json` already carries a `browser_specific_settings.gecko` block: the background script is declared only as `background.service_worker`, and Firefox does not implement background service workers for MV3 — it needs `background.scripts` as well. Until that is added (and the code checked against Firefox's event-page lifecycle), loading it via `about:debugging` will not translate anything.
 
 ---
 
@@ -64,6 +65,10 @@ AI Translator is a browser extension that translates web pages using AI language
 | Ollama | Local | `http://localhost:11434` | No |
 | OpenAI | Cloud | `https://api.openai.com` | Yes |
 | OpenRouter | Cloud | `https://openrouter.ai/api/v1` | Yes |
+
+The dropdown offers three entries — LM Studio, Ollama and OpenAI. OpenRouter and other OpenAI-compatible endpoints are used by picking **OpenAI** and replacing the URL.
+
+Settings (provider, per-provider URL, model, API key) are kept in `chrome.storage.sync`, so they follow your browser profile across devices — including the API key. Use a local provider if you would rather nothing synced at all.
 
 ### Setting Up Local Providers
 
@@ -193,8 +198,8 @@ chrome-translator-extension/
 
 ### Prerequisites
 
-- Chrome, Edge, Brave or Firefox
-- A running AI provider (local or cloud) to translate against
+- Chrome, Edge or Brave
+- A reachable AI provider (local or cloud) to translate against
 
 Plain JavaScript, HTML and CSS — no bundler, no dependencies, nothing to install.
 
