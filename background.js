@@ -37,7 +37,9 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "translatePage") {
-    if (!tab || !tab.id || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) {
+    // tab.url is undefined on pages the extension cannot access, so it must
+    // be checked before calling startsWith on it.
+    if (!tab || !tab.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) {
       console.warn('Cannot translate this page');
       return;
     }

@@ -6,8 +6,6 @@
   **Privacy-first web page translation using local AI models or cloud APIs**
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-  [![Chrome](https://img.shields.io/badge/Chrome-Supported-green.svg)](https://chrome.google.com/webstore)
-  [![Firefox](https://img.shields.io/badge/Firefox-Supported-orange.svg)](https://addons.mozilla.org)
   [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg)](https://developer.chrome.com/docs/extensions/mv3/)
 </div>
 
@@ -15,17 +13,25 @@
 
 ## Overview
 
-AI Translator is a browser extension that translates web pages using AI language models. It supports both **local AI models** (LM Studio, Ollama) for complete privacy and **cloud APIs** (OpenAI, OpenRouter) for convenience.
+AI Translator is a browser extension that translates the page you are reading with an AI language
+model of your choice. Point it at a **local model** (LM Studio or Ollama) to keep page content on
+your own machine, or at any **OpenAI-compatible cloud API** (OpenAI, OpenRouter, …) when you prefer
+a hosted model.
 
-### Key Features
+It is loaded from source as an unpacked extension: there is no build step, no bundler and no
+tracking. The whole extension is plain HTML, CSS and JavaScript on Manifest V3.
 
-- **Multiple AI Providers**: LM Studio, Ollama, OpenAI, and OpenRouter compatible
-- **16+ Languages**: English, Spanish, French, German, Japanese, Chinese, and more
-- **Privacy-First**: Use local models for complete data privacy
-- **Visual Highlighting**: Translated text is highlighted with hover-to-see-original
-- **Batch Translation**: Efficient translation of entire pages
-- **Smart Detection**: Automatically identifies translatable content
-- **Cross-Browser**: Works on Chrome, Edge, Brave, and Firefox
+### Key features
+
+- **Bring your own model**: LM Studio, Ollama, or any OpenAI-compatible endpoint
+- **16 target languages**: English, Spanish, French, German, Japanese, Chinese and more
+- **Local by default**: with LM Studio or Ollama, no page text leaves your machine
+- **Hover to compare**: translated passages are marked with a dashed underline and reveal the
+  original text on hover
+- **Batch translation** with a progress panel you can cancel at any time
+- **One-click restore** of the original page
+- **Light and dark popup**, following your operating-system preference
+- **Cross-browser**: Chrome, Edge, Brave and Firefox (Manifest V3)
 
 ---
 
@@ -61,12 +67,17 @@ AI Translator is a browser extension that translates web pages using AI language
 
 ### Supported AI Providers
 
-| Provider | Type | Default URL | API Key Required |
-|----------|------|-------------|------------------|
-| LM Studio | Local | `http://localhost:1234` | No |
-| Ollama | Local | `http://localhost:11434` | No |
-| OpenAI | Cloud | `https://api.openai.com` | Yes |
-| OpenRouter | Cloud | `https://openrouter.ai/api/v1` | Yes |
+The popup offers three provider entries. "OpenAI compatible" works with any service that speaks the
+OpenAI Chat Completions API, so OpenRouter and similar gateways are configured through it by
+changing the endpoint. Each provider keeps its own endpoint, so switching back and forth does not
+lose a custom URL.
+
+| Provider in the popup | Type | Default endpoint | API key |
+|-----------------------|------|------------------|---------|
+| LM Studio | Local | `http://localhost:1234` | Not needed |
+| Ollama | Local | `http://localhost:11434` | Not needed |
+| OpenAI compatible | Cloud | `https://api.openai.com` | Required |
+| OpenAI compatible (OpenRouter) | Cloud | `https://openrouter.ai/api/v1` | Required |
 
 ### Setting Up Local Providers
 
@@ -97,14 +108,14 @@ AI Translator is a browser extension that translates web pages using AI language
 #### OpenAI
 
 1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-2. Select "OpenAI" as provider in the extension
+2. Select "OpenAI compatible" as provider in the extension
 3. Enter your API key (starts with `sk-`)
 
 #### OpenRouter
 
 1. Get an API key from [OpenRouter](https://openrouter.ai/keys)
-2. Select "OpenAI" as provider (OpenRouter uses OpenAI-compatible API)
-3. Set URL to `https://openrouter.ai/api/v1`
+2. Select "OpenAI compatible" as provider
+3. Set the endpoint to `https://openrouter.ai/api/v1`
 4. Enter your OpenRouter API key
 
 ---
@@ -113,25 +124,29 @@ AI Translator is a browser extension that translates web pages using AI language
 
 ### Translating a Page
 
-**Option 1: Extension Popup**
+**Option 1: Extension popup**
 1. Click the extension icon in your toolbar
 2. Select your target language
-3. Click "Translate Page"
+3. Click "Translate page"
 
-**Option 2: Context Menu**
+**Option 2: Context menu**
 1. Right-click anywhere on the page
 2. Select "Translate with AI"
 
-### Viewing Original Text
+While a page is being translated, a progress panel appears in the bottom-right corner. Its close
+button stops the run and restores what has already been replaced.
 
-- **Hover** over any translated text to see the original in a tooltip
-- Click "Restore Original" in the popup to revert all translations
+### Viewing the original text
 
-### Testing Connection
+- **Hover** a translated passage (dashed underline) to see the original in a tooltip
+- Click "Restore original" in the popup to revert the whole page
+
+### Testing the connection
 
 1. Open the extension popup
-2. Click "Test Connection"
-3. A green indicator shows successful connection
+2. Click "Test connection"
+3. The badge in the header turns green when the provider answered, red when it did not; the message
+   below the buttons explains what went wrong
 
 ---
 
@@ -181,10 +196,10 @@ chrome-translator-extension/
 ├── background.js        # Service worker for API calls
 ├── content.js           # Content script for DOM manipulation
 ├── content.css          # Styles for translated elements
-├── popup.html           # Extension popup UI with embedded CSS
-├── popup.js             # Popup functionality
+├── popup.html           # Extension popup UI, including its design tokens and CSS
+├── popup.js             # Popup behaviour (settings, model detection, connection test)
 ├── icons/               # Extension icons (16, 48, 128px)
-├── CLAUDE.md            # AI assistant development guide
+├── generate-icons.js    # Regenerates the PNG icons from icons/icon.svg
 ├── SPECIFICATION.md     # Technical specification
 ├── CONTRIBUTING.md      # Contribution guidelines
 ├── LICENSE              # MIT License
@@ -195,10 +210,20 @@ chrome-translator-extension/
 
 ## Development
 
+### Tech stack
+
+- Manifest V3, no framework and no build step — the files in the repository are the extension
+- Vanilla JavaScript for the popup, service worker and content script
+- Plain CSS with custom properties as design tokens (`popup.html` for the popup, `content.css` for
+  the widgets injected into pages); both ship a light and a dark theme driven by
+  `prefers-color-scheme` and honour `prefers-reduced-motion`
+- No remote fonts, styles or scripts, as required by the extension CSP
+- The only dev dependency is [sharp](https://sharp.pixelplumbing.com/), used to render the PNG icons
+
 ### Prerequisites
 
-- Node.js 18+ (for icon generation)
-- Chrome, Edge, or Firefox browser
+- Chrome, Edge, Brave or Firefox
+- Node.js 18+ only if you want to regenerate the icons
 
 ### Local Development
 
@@ -207,10 +232,10 @@ chrome-translator-extension/
 git clone https://github.com/rennerdo30/chrome-translator-extension.git
 cd chrome-translator-extension
 
-# Install dependencies
+# Optional: only needed for icon generation
 npm install
 
-# Regenerate icons (if modified)
+# Regenerate icons after editing icons/icon.svg
 npm run generate-icons
 ```
 
@@ -283,6 +308,18 @@ Compatible services include:
 - Azure OpenAI
 - Local servers (LM Studio, Ollama, llama.cpp, vLLM)
 - Any OpenAI-compatible proxy
+
+---
+
+## Privacy
+
+- Settings (provider, endpoint, model, target language, API key) are stored with
+  `chrome.storage.sync`, i.e. in your browser profile. Nothing is sent to any server operated by
+  this project.
+- Page text is sent only to the endpoint you configure. With LM Studio or Ollama that endpoint is
+  on your own machine; with a cloud provider the text leaves your machine and their privacy policy
+  applies.
+- The extension contains no analytics, no telemetry and no remote assets.
 
 ---
 
