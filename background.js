@@ -22,6 +22,24 @@ const API_KEY_PROVIDERS = ['openai', 'deepseek'];
 const CACHE_STORAGE_KEY = 'translationCache';
 const MAX_CACHE_ENTRIES = 10000; // ~2 MB of chrome.storage.local; acts as a per-site "locale file"
 
+// Image translation (two-stage): text is extracted from the image, then the
+// regular translation provider translates it. Needed because some translation
+// APIs (e.g. DeepSeek's hosted API) are text-only.
+// Default extraction is the BUNDLED Tesseract OCR (runs in the browser via an
+// offscreen document — zero setup, no extra endpoint or API key). Users with a
+// vision-capable endpoint can switch to 'endpoint' mode instead.
+const VISION_MODE_BUILTIN = 'builtin';
+const VISION_MODE_ENDPOINT = 'endpoint';
+const DEFAULT_OCR_LANGUAGES = 'eng';
+const VISION_DEFAULT_URL = 'http://localhost:11434'; // Ollama
+const VISION_DEFAULT_MODEL = 'qwen3-vl';
+const VISION_TIMEOUT_MS = 90000; // Vision inference is slow, especially locally
+const IMAGE_FETCH_TIMEOUT_MS = 15000;
+const IMAGE_MAX_DIMENSION = 1024; // Downscale larger images to save tokens/time
+const IMAGE_CACHE_STORAGE_KEY = 'imageTranslationCache';
+const MAX_IMAGE_CACHE_ENTRIES = 500;
+const NO_TEXT_MARKER = 'NO_TEXT'; // Vision model returns this for text-free images
+
 chrome.runtime.onInstalled.addListener(async () => {
   // Only set defaults for keys that don't already exist
   const defaults = {
@@ -33,7 +51,12 @@ chrome.runtime.onInstalled.addListener(async () => {
     apiKey: '',
     targetLanguage: 'English',
     model: '',
-    autoTranslateSites: []
+    autoTranslateSites: [],
+    visionMode: VISION_MODE_BUILTIN,
+    visionOcrLanguages: DEFAULT_OCR_LANGUAGES,
+    visionUrl: VISION_DEFAULT_URL,
+    visionModel: VISION_DEFAULT_MODEL,
+    visionApiKey: ''
   };
 
   const existing = await chrome.storage.sync.get(Object.keys(defaults));
@@ -49,12 +72,17 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.sync.set(toSet);
   }
 
-  // Create context menu (use try-catch in case it already exists)
+  // Create context menus (use try-catch in case they already exist)
   try {
     chrome.contextMenus.create({
       id: "translatePage",
       title: "Translate with AI",
       contexts: ["page", "selection"]
+    });
+    chrome.contextMenus.create({
+      id: "translateImage",
+      title: "Translate image with AI",
+      contexts: ["image"]
     });
   } catch (e) {
     // Menu already exists, ignore
@@ -62,6 +90,14 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === "translateImage") {
+    if (!tab || !tab.id || !info.srcUrl) {
+      console.warn('Cannot translate this image');
+      return;
+    }
+    handleImageTranslation(info.srcUrl, tab.id);
+    return;
+  }
   if (info.menuItemId === "translatePage") {
     if (!tab || !tab.id || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) {
       console.warn('Cannot translate this page');
@@ -141,6 +177,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(translations => sendResponse({ success: true, translations }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
+  } else if (request.action === 'translateImage') {
+    const tabId = request.tabId ?? (sender.tab && sender.tab.id);
+    handleImageTranslation(request.srcUrl, tabId);
+    sendResponse({ success: true, started: true });
+    return false;
   } else if (request.action === 'storeCachedTranslations') {
     storeCachedTranslations(request.entries, request.targetLanguage)
       .then(() => sendResponse({ success: true }))
@@ -206,6 +247,259 @@ function storeCachedTranslations(entries, targetLanguage) {
 
   // Keep the queue alive even if one write fails
   cacheWriteQueue = write.catch(error => console.error('Cache write failed:', error));
+  return write;
+}
+
+// --- Image translation ------------------------------------------------------
+
+async function ensureContentScript(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+  } catch (error) {
+    await chrome.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    // Give the content script a moment to register its listeners
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+
+async function handleImageTranslation(srcUrl, tabId) {
+  if (!srcUrl || !tabId) {
+    console.warn('Image translation requested without srcUrl or tabId');
+    return;
+  }
+
+  const settings = await chrome.storage.sync.get(['targetLanguage']);
+  const targetLanguage = settings.targetLanguage || 'English';
+
+  try {
+    await ensureContentScript(tabId);
+    await chrome.tabs.sendMessage(tabId, { action: 'imageTranslationStarted', srcUrl });
+
+    const result = await translateImage(srcUrl, targetLanguage);
+    await chrome.tabs.sendMessage(tabId, { action: 'imageTranslationResult', srcUrl, ...result });
+  } catch (error) {
+    console.error('Image translation failed:', error);
+    try {
+      await chrome.tabs.sendMessage(tabId, { action: 'imageTranslationResult', srcUrl, error: error.message });
+    } catch (sendError) {
+      console.error('Could not report image translation error to tab:', sendError);
+    }
+  }
+}
+
+async function translateImage(srcUrl, targetLanguage) {
+  const cacheKey = await buildImageCacheKey(srcUrl, targetLanguage);
+  const cached = await getImageCacheEntry(cacheKey);
+  if (cached) {
+    console.debug('Image translation served from cache:', srcUrl);
+    return { ...cached, fromCache: true };
+  }
+
+  const imageDataUrl = await fetchImageAsDataUrl(srcUrl);
+  const extractedText = await extractTextFromImage(imageDataUrl);
+
+  if (!extractedText || extractedText === NO_TEXT_MARKER) {
+    return { extractedText: '', translation: '', noText: true };
+  }
+
+  const translation = await translateText(extractedText, targetLanguage);
+  const result = { extractedText, translation };
+  storeImageCacheEntry(cacheKey, result);
+  return result;
+}
+
+async function getVisionSettings() {
+  const settings = await chrome.storage.sync.get(['visionUrl', 'visionModel', 'visionApiKey']);
+  let baseUrl = (settings.visionUrl || VISION_DEFAULT_URL).trim();
+  if (baseUrl.endsWith('/')) {
+    baseUrl = baseUrl.slice(0, -1);
+  }
+  const headers = { 'Content-Type': 'application/json' };
+  if (settings.visionApiKey) {
+    headers['Authorization'] = `Bearer ${settings.visionApiKey}`;
+  }
+  return { baseUrl, headers, model: settings.visionModel || VISION_DEFAULT_MODEL };
+}
+
+async function fetchImageAsDataUrl(srcUrl) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(srcUrl, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image (HTTP ${response.status})`);
+    }
+    const blob = await response.blob();
+    const prepared = await downscaleImage(blob).catch(error => {
+      console.warn('Image downscale failed, sending original:', error);
+      return blob;
+    });
+    return blobToDataUrl(prepared);
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('Fetching the image timed out.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Downscale large images so vision requests stay fast and token-cheap
+async function downscaleImage(blob) {
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+  const isCommonFormat = ['image/png', 'image/jpeg', 'image/webp'].includes(blob.type);
+
+  if (scale >= 1 && isCommonFormat) {
+    bitmap.close();
+    return blob;
+  }
+
+  const canvas = new OffscreenCanvas(
+    Math.max(1, Math.round(bitmap.width * scale)),
+    Math.max(1, Math.round(bitmap.height * scale))
+  );
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.convertToBlob({ type: 'image/png' });
+}
+
+async function blobToDataUrl(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000; // String.fromCharCode argument limit safety
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return `data:${blob.type || 'image/png'};base64,${btoa(binary)}`;
+}
+
+async function extractTextFromImage(imageDataUrl) {
+  const { visionMode } = await chrome.storage.sync.get(['visionMode']);
+  if ((visionMode || VISION_MODE_BUILTIN) === VISION_MODE_BUILTIN) {
+    return extractTextWithBuiltinOcr(imageDataUrl);
+  }
+  return extractTextWithVisionModel(imageDataUrl);
+}
+
+async function ensureOffscreenDocument() {
+  if (await chrome.offscreen.hasDocument()) {
+    return;
+  }
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['WORKERS'],
+    justification: 'Run the bundled Tesseract OCR engine for image translation'
+  });
+}
+
+async function extractTextWithBuiltinOcr(imageDataUrl) {
+  await ensureOffscreenDocument();
+  const { visionOcrLanguages } = await chrome.storage.sync.get(['visionOcrLanguages']);
+
+  const response = await chrome.runtime.sendMessage({
+    action: 'offscreenOcr',
+    imageDataUrl,
+    languages: visionOcrLanguages || DEFAULT_OCR_LANGUAGES
+  });
+
+  if (!response || !response.success) {
+    throw new Error((response && response.error) || 'Built-in OCR failed');
+  }
+  return response.text ? response.text : NO_TEXT_MARKER;
+}
+
+async function extractTextWithVisionModel(imageDataUrl) {
+  const vision = await getVisionSettings();
+  const apiEndpoint = getApiEndpoint(vision.baseUrl);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(apiEndpoint, {
+      method: 'POST',
+      headers: vision.headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: vision.model,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Extract all readable text from this image exactly as written, preserving line breaks. Return only the extracted text, no explanations. If the image contains no readable text, return exactly ${NO_TEXT_MARKER}.`
+              },
+              {
+                type: 'image_url',
+                image_url: { url: imageDataUrl }
+              }
+            ]
+          }
+        ],
+        temperature: 0.1
+      })
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(formatApiError(response.status, errorText));
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('The vision model timed out. Local vision models can be slow on first load.');
+    }
+    throw new Error(`Text extraction failed: ${error.message}`);
+  }
+}
+
+async function buildImageCacheKey(srcUrl, targetLanguage) {
+  const { provider, model } = await getProviderSettings();
+  const { visionMode, visionOcrLanguages } = await chrome.storage.sync.get(['visionMode', 'visionOcrLanguages']);
+  // The extractor is part of the key so switching OCR/vision setups never
+  // reuses a stale extraction
+  const extractor = (visionMode || VISION_MODE_BUILTIN) === VISION_MODE_BUILTIN
+    ? `ocr:${visionOcrLanguages || DEFAULT_OCR_LANGUAGES}`
+    : `vision:${(await getVisionSettings()).model}`;
+  return JSON.stringify(['img', provider, model, extractor, targetLanguage, srcUrl]);
+}
+
+async function getImageCacheEntry(key) {
+  const stored = await chrome.storage.local.get(IMAGE_CACHE_STORAGE_KEY);
+  const cache = stored[IMAGE_CACHE_STORAGE_KEY] || {};
+  const entry = cache[key];
+  return entry ? { extractedText: entry.extractedText, translation: entry.translation } : null;
+}
+
+function storeImageCacheEntry(key, result) {
+  const write = cacheWriteQueue.then(async () => {
+    const stored = await chrome.storage.local.get(IMAGE_CACHE_STORAGE_KEY);
+    const cache = stored[IMAGE_CACHE_STORAGE_KEY] || {};
+    cache[key] = { extractedText: result.extractedText, translation: result.translation, ts: Date.now() };
+
+    // Evict oldest entries beyond the cap
+    const keys = Object.keys(cache);
+    if (keys.length > MAX_IMAGE_CACHE_ENTRIES) {
+      keys.sort((a, b) => (cache[a].ts || 0) - (cache[b].ts || 0));
+      for (const staleKey of keys.slice(0, keys.length - MAX_IMAGE_CACHE_ENTRIES)) {
+        delete cache[staleKey];
+      }
+    }
+
+    await chrome.storage.local.set({ [IMAGE_CACHE_STORAGE_KEY]: cache });
+  });
+
+  cacheWriteQueue = write.catch(error => console.error('Image cache write failed:', error));
   return write;
 }
 

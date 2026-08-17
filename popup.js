@@ -76,6 +76,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const parallelRequestsInput = document.getElementById('parallelRequests');
   const batchSizeInput = document.getElementById('batchSize');
   const autoTranslateSiteCheckbox = document.getElementById('autoTranslateSite');
+  const visionModeSelect = document.getElementById('visionMode');
+  const ocrLanguagesGroup = document.getElementById('ocrLanguagesGroup');
+  const visionOcrLanguagesInput = document.getElementById('visionOcrLanguages');
+  const visionEndpointGroup = document.getElementById('visionEndpointGroup');
+  const visionUrlInput = document.getElementById('visionUrl');
+  const visionModelInput = document.getElementById('visionModel');
+  const visionApiKeyInput = document.getElementById('visionApiKey');
   const translateBtn = document.getElementById('translateBtn');
   const restoreBtn = document.getElementById('restoreBtn');
   const testConnectionBtn = document.getElementById('testConnection');
@@ -121,6 +128,40 @@ document.addEventListener('DOMContentLoaded', async () => {
   modelNameInput.value = settings.model || '';
   targetLanguageSelect.value = settings.targetLanguage || 'English';
   applyExecutionInputs(providerSelect.value, settings.executionSettings);
+
+  // Image translation settings
+  const visionSettings = await chrome.storage.sync.get(['visionMode', 'visionOcrLanguages', 'visionUrl', 'visionModel', 'visionApiKey']);
+  visionModeSelect.value = visionSettings.visionMode || 'builtin';
+  visionOcrLanguagesInput.value = visionSettings.visionOcrLanguages || 'eng';
+  visionUrlInput.value = visionSettings.visionUrl || 'http://localhost:11434';
+  visionModelInput.value = visionSettings.visionModel || '';
+  visionApiKeyInput.value = visionSettings.visionApiKey || '';
+  updateVisionUI();
+
+  function updateVisionUI() {
+    const builtin = visionModeSelect.value === 'builtin';
+    ocrLanguagesGroup.classList.toggle('hidden', !builtin);
+    visionEndpointGroup.classList.toggle('hidden', builtin);
+  }
+
+  async function saveVisionSettings() {
+    await chrome.storage.sync.set({
+      visionMode: visionModeSelect.value,
+      visionOcrLanguages: visionOcrLanguagesInput.value.trim() || 'eng',
+      visionUrl: visionUrlInput.value.trim(),
+      visionModel: visionModelInput.value.trim(),
+      visionApiKey: visionApiKeyInput.value
+    });
+  }
+
+  visionModeSelect.addEventListener('change', async () => {
+    updateVisionUI();
+    await saveVisionSettings();
+  });
+  visionOcrLanguagesInput.addEventListener('change', saveVisionSettings);
+  visionUrlInput.addEventListener('change', saveVisionSettings);
+  visionModelInput.addEventListener('change', saveVisionSettings);
+  visionApiKeyInput.addEventListener('change', saveVisionSettings);
 
   // Check current translation status
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

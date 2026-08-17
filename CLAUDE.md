@@ -210,6 +210,7 @@ Two mechanisms affect every translation flow — keep them in mind for any chang
 
 1. **Per-provider execution settings** (`executionSettings` in `chrome.storage.sync`): `parallelRequests` (1–10) and `batchSize` (1–50) with per-provider defaults (local providers 1/10, cloud providers 4/20). The defaults table is intentionally duplicated in `popup.js` and `content.js` (`PROVIDER_EXECUTION_DEFAULTS`) — keep both in sync.
 2. **Translation cache** (`translationCache` in `chrome.storage.local`): consulted before every API call, written after every successful translation. The key contains provider, model, target language and the exact source text, so provider/model/language switches and source-text changes never reuse stale entries. Also powers per-site auto-translate (`autoTranslateSites`) and dynamic-content translation.
+3. **Image translation** (context menu on images): two-stage pipeline because DeepSeek's hosted API is text-only — text is extracted either by the bundled Tesseract OCR (default; offscreen document, `vendor/tesseract/`, manifest CSP includes `wasm-unsafe-eval`, `workerBlobURL: false`) or by an OpenAI-compatible vision endpoint, then translated by the regular provider. Results cached in `imageTranslationCache`.
 
 ## Development Guidelines
 

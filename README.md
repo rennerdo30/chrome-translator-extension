@@ -27,7 +27,8 @@ Text nodes are collected from the page, sent to the configured chat-completions 
 - **Parallel Execution**: Batch size and the number of simultaneous requests are configurable per provider — local providers default to sequential requests, cloud providers to 4 parallel requests
 - **Translation Cache**: Every translated segment is cached locally (keyed by provider, model, language and the exact source text) — repeated strings are translated once, revisits are served without API calls, and any changed text is automatically retranslated
 - **Auto-Translate per Site**: Opt a site in and it is translated on every visit — combined with the cache, browsing feels like the site ships a locale for your language
-- **Dynamic Content**: While translation is active, content added later (single-page apps, infinite scroll, lazy loading) is detected and translated automatically in the background
+- **Dynamic Content**: While translation is active, content added later (single-page apps, infinite scroll, lazy loading, in-place text updates) is detected and translated automatically in the background
+- **Image Translation**: Right-click any image → "Translate image with AI" — text is extracted by the bundled OCR engine (no setup, works with text-only APIs like DeepSeek) or an optional vision-model endpoint, translated by your provider, and shown as an overlay on the image
 - **Resilient**: A batch whose response does not line up is retried, then falls back to translating each chunk individually
 - **Smart Detection**: Skips `<script>`, `<style>`, `<noscript>`, editable fields, whitespace, pure numbers and text that already looks like the target language — with script-aware length rules, so short CJK headings (e.g. 情報) are still translated
 
@@ -95,6 +96,17 @@ Translations are cached in `chrome.storage.local` (device-local, max 10,000 entr
 - If a sentence changes on the page, it no longer matches the cache and is retranslated automatically — the progress popup shows the split, e.g. "Done — 12 from cache, 3 newly translated".
 
 Enable **Auto-translate this site** in the popup to translate a site on every visit. Together with the cache this effectively gives any website an i18n layer for your target language: cached pages render translated immediately, and only new or changed content is sent to the AI provider.
+
+### Image Translation
+
+Right-click any image and pick **"Translate image with AI"**. The pipeline has two stages, because several translation APIs (including DeepSeek's hosted API) accept text only:
+
+1. **Text extraction** — one of two modes, selectable in the popup:
+   - **Built-in OCR** (default): a bundled [Tesseract.js](https://github.com/naptha/tesseract.js) engine runs inside the extension — no server, no extra API key. Set the OCR languages as `+`-joined [Tesseract codes](https://tesseract-ocr.github.io/tessdoc/Data-Files-in-different-versions.html) (e.g. `eng+jpn+deu`); language data is downloaded once from the tessdata CDN and cached.
+   - **Vision model endpoint**: any OpenAI-compatible endpoint with a vision-capable model (e.g. `qwen3-vl` via Ollama, or GPT-5-family via OpenAI). Note: DeepSeek's hosted API does **not** accept images.
+2. **Translation** — the extracted text is translated by your regular provider and shown as an overlay below the image (hover shows the extracted original).
+
+Results are cached per image URL, so repeated requests are instant and free.
 
 ### Setting Up Local Providers
 
@@ -230,6 +242,9 @@ chrome-translator-extension/
 ├── content.css          # Styles for translated elements
 ├── popup.html           # Extension popup UI with embedded CSS
 ├── popup.js             # Popup functionality
+├── offscreen.html       # Offscreen document hosting the OCR engine
+├── offscreen.js         # OCR message handling (Tesseract worker)
+├── vendor/tesseract/    # Bundled Tesseract.js (OCR for image translation)
 ├── icons/               # Extension icons (16, 48, 128px)
 ├── SPECIFICATION.md     # Technical specification
 ├── CONTRIBUTING.md      # Contribution guidelines
@@ -246,7 +261,7 @@ chrome-translator-extension/
 - Chrome, Edge or Brave
 - A reachable AI provider (local or cloud) to translate against
 
-Plain JavaScript, HTML and CSS — no bundler, no dependencies, nothing to install.
+Plain JavaScript, HTML and CSS — no bundler, nothing to install. The only third-party library is Tesseract.js, vendored under `vendor/tesseract/` for the built-in image OCR.
 
 ### Testing Changes
 

@@ -2,9 +2,9 @@
 
 ## Version
 
-- **Extension Version**: 1.2.0
+- **Extension Version**: 1.3.0
 - **Manifest Version**: 3
-- **Specification Date**: 2026-08-17
+- **Specification Date**: 2026-08-18
 
 ---
 
@@ -62,7 +62,8 @@ This specification covers:
 | Service Worker | `background.js` | API communication, translation logic, message routing, translation cache |
 | Content Script | `content.js`, `content.css` | DOM manipulation, text extraction, visual rendering, auto-translate |
 | Storage | Chrome Sync API | Persistent settings storage |
-| Cache | Chrome Local Storage API | Persistent translation cache (device-local) |
+| Cache | Chrome Local Storage API | Persistent translation + image caches (device-local) |
+| Offscreen Document | `offscreen.html/js`, `vendor/tesseract/` | Bundled Tesseract OCR for image translation |
 
 ---
 
@@ -138,6 +139,8 @@ The extension implements intelligent endpoint detection:
 | `getModels` | `{settings}` | `{success, models[]}` |
 | `getCachedTranslations` | `{texts[], targetLanguage}` | `{success, translations: {text → translation}}` |
 | `storeCachedTranslations` | `{entries[], targetLanguage}` | `{success}` |
+| `translateImage` | `{srcUrl, tabId?}` | `{success, started}` (result arrives via tab message) |
+| `offscreenOcr` | `{imageDataUrl, languages}` | `{success, text}` (handled by the offscreen document) |
 
 ### 4.2 Service Worker → Content Script
 
@@ -145,6 +148,8 @@ The extension implements intelligent endpoint detection:
 |--------|---------|----------|
 | `toggleTranslation` | `{targetLanguage}` | `{success, isTranslating}` |
 | `getTranslationStatus` | - | `{isTranslating, hasTranslations}` |
+| `imageTranslationStarted` | `{srcUrl}` | `{success}` (shows loading overlay) |
+| `imageTranslationResult` | `{srcUrl, translation?, extractedText?, noText?, error?}` | `{success}` (shows result overlay) |
 | `ping` | - | `{pong: true}` |
 
 ### 4.3 Batch Translation Protocol
@@ -191,6 +196,13 @@ interface StorageSchema {
 
   // Hostnames that are translated automatically on page load
   autoTranslateSites: string[];
+
+  // Image translation
+  visionMode: 'builtin' | 'endpoint';  // default 'builtin' (bundled Tesseract OCR)
+  visionOcrLanguages: string;          // Tesseract codes joined with '+', default 'eng'
+  visionUrl: string;                   // vision endpoint (endpoint mode), default Ollama URL
+  visionModel: string;                 // default 'qwen3-vl'
+  visionApiKey: string;                // optional Bearer key for cloud vision APIs
 }
 ```
 
@@ -236,6 +248,31 @@ interface LocalStorageSchema {
 - Capacity is capped at 10,000 entries; the oldest entries (by timestamp) are
   evicted first. Writes are serialized in the service worker to avoid
   read-modify-write races between parallel batches.
+
+A second cache, `imageTranslationCache` (max 500 entries, same eviction), maps
+`JSON.stringify(['img', provider, model, extractor, targetLanguage, srcUrl])`
+to `{ extractedText, translation, ts }`, where `extractor` encodes the OCR
+languages or the vision model so setup changes never reuse stale extractions.
+
+### 5.4 Image Translation Pipeline
+
+Triggered from the "Translate image with AI" context menu (or a
+`translateImage` runtime message):
+
+1. The service worker fetches the image, downscales it to max 1024 px via
+   `OffscreenCanvas` and encodes it as a data URL.
+2. Text extraction, depending on `visionMode`:
+   - `builtin`: an offscreen document (`chrome.offscreen`, reason `WORKERS`)
+     runs the bundled Tesseract.js worker (`vendor/tesseract/`,
+     `workerBlobURL: false` because blob workers are blocked by the extension
+     CSP; the manifest CSP adds `wasm-unsafe-eval` for the WASM core).
+     Language training data is fetched from the tessdata CDN and cached.
+   - `endpoint`: an OpenAI-compatible chat completion with an `image_url`
+     content block is sent to the configured vision endpoint. Note that
+     DeepSeek's hosted API is text-only and cannot be used here.
+3. The extracted text is translated via the regular provider (`translateText`)
+   and delivered to the content script, which anchors an overlay below the
+   image (loading, error, and no-text states included).
 
 ---
 
@@ -318,6 +355,11 @@ dedupe/cache/translate pipeline. If API calls are needed, the progress UI is
 shown with the title "Translating new content..."; pure cache restores are
 silent. The observer stops when the user restores the original text.
 
+The observer also watches `characterData` mutations (frameworks that update
+text nodes in place), and auto-translate starts the observer even when the
+initial page has no translatable text — SPA shells often render content only
+after load.
+
 ### 6.7 Visual Indicators
 
 Translated text receives the CSS class `lm-translated`:
@@ -366,7 +408,8 @@ Translated text receives the CSS class `lm-translated`:
     "activeTab",      // Access current tab only
     "storage",        // Persist settings
     "scripting",      // Inject content scripts
-    "contextMenus"    // Right-click menu
+    "contextMenus",   // Right-click menus (page + image translation)
+    "offscreen"       // Offscreen document hosting the OCR engine
   ],
   "host_permissions": [
     "http://localhost:*/*",   // Local AI servers
@@ -555,3 +598,4 @@ User changes provider
 | 1.0.0 | 2025-01-11 | Initial specification |
 | 1.1.0 | 2025-01-18 | Added URL path handling, timeouts, error messages |
 | 1.2.0 | 2026-08-17 | DeepSeek provider, per-provider execution settings (parallel requests, batch size), translation cache with dedupe, per-site auto-translate, dynamic content observation, editable model dropdown with recommendations |
+| 1.3.0 | 2026-08-18 | Image translation (built-in Tesseract OCR or vision endpoint + provider translation, overlay UI, image cache), script-aware CJK length rules, characterData/SPA-shell observation, URL-aware model recommendations |

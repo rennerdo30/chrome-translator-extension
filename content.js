@@ -60,12 +60,88 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true, isTranslating });
   } else if (request.action === 'getTranslationStatus') {
     sendResponse({ isTranslating, hasTranslations: translatedTexts.size > 0 });
+  } else if (request.action === 'imageTranslationStarted') {
+    showImageOverlay(request.srcUrl, 'Translating image...', { loading: true });
+    sendResponse({ success: true });
+  } else if (request.action === 'imageTranslationResult') {
+    handleImageTranslationResult(request);
+    sendResponse({ success: true });
   } else if (request.action === 'ping') {
     // Used to check if content script is loaded
     sendResponse({ pong: true });
   }
   return true; // Keep channel open for async responses
 });
+
+// --- Image translation overlay ----------------------------------------------
+
+const imageOverlays = new Map(); // srcUrl -> overlay element
+
+function handleImageTranslationResult(result) {
+  if (result.error) {
+    showImageOverlay(result.srcUrl, `Image translation failed: ${result.error}`, { error: true });
+  } else if (result.noText) {
+    showImageOverlay(result.srcUrl, 'No readable text found in this image.');
+  } else {
+    showImageOverlay(result.srcUrl, result.translation, { original: result.extractedText });
+  }
+}
+
+function findImageForSrc(srcUrl) {
+  for (const img of document.querySelectorAll('img')) {
+    if (img.currentSrc === srcUrl || img.src === srcUrl) {
+      return img;
+    }
+  }
+  return null;
+}
+
+function showImageOverlay(srcUrl, text, options = {}) {
+  removeImageOverlay(srcUrl);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'lm-image-overlay';
+  if (options.error) overlay.classList.add('lm-image-overlay-error');
+  if (options.loading) overlay.classList.add('lm-image-overlay-loading');
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'lm-image-overlay-close';
+  closeBtn.textContent = '×';
+  closeBtn.title = 'Close';
+  closeBtn.addEventListener('click', () => removeImageOverlay(srcUrl));
+  overlay.appendChild(closeBtn);
+
+  const textEl = document.createElement('div');
+  textEl.className = 'lm-image-overlay-text';
+  textEl.textContent = text;
+  if (options.original) {
+    textEl.title = `Original: ${options.original}`;
+  }
+  overlay.appendChild(textEl);
+
+  const img = findImageForSrc(srcUrl);
+  if (img) {
+    const rect = img.getBoundingClientRect();
+    overlay.style.position = 'absolute';
+    overlay.style.left = `${rect.left + window.scrollX}px`;
+    overlay.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    overlay.style.maxWidth = `${Math.max(rect.width, 220)}px`;
+  } else {
+    // Image not found in the DOM (e.g. CSS background) — show as a corner toast
+    overlay.classList.add('lm-image-overlay-floating');
+  }
+
+  document.body.appendChild(overlay);
+  imageOverlays.set(srcUrl, overlay);
+}
+
+function removeImageOverlay(srcUrl) {
+  const existing = imageOverlays.get(srcUrl);
+  if (existing && existing.parentNode) {
+    existing.remove();
+  }
+  imageOverlays.delete(srcUrl);
+}
 
 function toggleTranslation(targetLanguage) {
   // Restore if a run is in progress OR the page currently shows translations
@@ -89,6 +165,13 @@ function startDynamicObserver() {
 
   mutationObserver = new MutationObserver(mutations => {
     for (const mutation of mutations) {
+      // In-place text updates (SPA routers/frameworks often reuse text nodes)
+      if (mutation.type === 'characterData') {
+        const parent = mutation.target.parentElement;
+        if (parent && parent.closest(OWN_UI_SELECTOR)) continue;
+        pendingDynamicNodes.add(mutation.target);
+        continue;
+      }
       for (const node of mutation.addedNodes) {
         // Ignore our own spans/UI and anything inside them
         const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
@@ -101,7 +184,7 @@ function startDynamicObserver() {
     }
   });
 
-  mutationObserver.observe(document.body, { childList: true, subtree: true });
+  mutationObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
   console.log('Dynamic content observer started');
 }
 
@@ -196,7 +279,11 @@ async function translatePage(targetLanguage, isAuto = false) {
 
   if (textEntries.length === 0) {
     console.log('No text to translate');
-    if (!isAuto) {
+    if (isAuto) {
+      // SPA shells often load empty and render content moments later —
+      // keep watching so that content gets translated when it arrives
+      startDynamicObserver();
+    } else {
       alert('No translatable text found on this page.');
     }
     isTranslating = false;

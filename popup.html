@@ -456,6 +456,22 @@
       color: var(--text-muted);
     }
 
+    /* Hint text */
+    .hint {
+      margin-top: 6px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--text-muted);
+    }
+
+    .hint code {
+      font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+      font-size: 10px;
+      background: var(--bg-tertiary);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
     /* Checkbox */
     .checkbox-label {
       display: flex;
@@ -656,6 +672,38 @@
           <input type="checkbox" id="autoTranslateSite" class="checkbox">
           <span>Auto-translate this site</span>
         </label>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <div class="form-group">
+        <label class="form-label" for="visionMode">Image Translation</label>
+        <select id="visionMode" class="select">
+          <option value="builtin">Built-in OCR (no setup needed)</option>
+          <option value="endpoint">Vision model endpoint</option>
+        </select>
+        <p class="hint">Right-click any image &rarr; "Translate image with AI". The text is extracted, then translated by your provider above.</p>
+      </div>
+
+      <div class="form-group" id="ocrLanguagesGroup">
+        <label class="form-label" for="visionOcrLanguages">OCR Languages</label>
+        <input type="text" id="visionOcrLanguages" class="input" placeholder="eng" title="Tesseract language codes joined with +, e.g. eng+jpn+deu">
+        <p class="hint">Language codes joined with +, e.g. <code>eng+jpn+deu</code>. Language data is downloaded once and cached.</p>
+      </div>
+
+      <div class="hidden" id="visionEndpointGroup">
+        <div class="form-group">
+          <label class="form-label" for="visionUrl">Vision Endpoint</label>
+          <input type="url" id="visionUrl" class="input" placeholder="http://localhost:11434">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="visionModel">Vision Model</label>
+          <input type="text" id="visionModel" class="input" placeholder="qwen3-vl">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="visionApiKey">Vision API Key (optional)</label>
+          <input type="password" id="visionApiKey" class="input" placeholder="Only for cloud vision APIs">
+        </div>
       </div>
     </section>
 
