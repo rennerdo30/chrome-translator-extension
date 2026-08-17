@@ -375,6 +375,87 @@
       visibility: hidden;
     }
 
+    /* Editable model combobox */
+    .combobox {
+      position: relative;
+    }
+
+    .combobox .input {
+      padding-right: 32px;
+    }
+
+    .combobox-toggle {
+      position: absolute;
+      top: 0;
+      right: 0;
+      height: 100%;
+      width: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    }
+
+    .combobox-toggle:hover {
+      color: var(--text-primary);
+    }
+
+    .combobox-toggle svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .combobox-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 200px;
+      overflow-y: auto;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      z-index: 100;
+    }
+
+    .combobox-section {
+      padding: 6px 12px 2px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .combobox-option {
+      padding: 7px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+
+    .combobox-option:hover,
+    .combobox-option.active {
+      background: var(--accent-light);
+    }
+
+    .combobox-option .option-note {
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .combobox-empty {
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
     /* Checkbox */
     .checkbox-label {
       display: flex;
@@ -516,8 +597,15 @@
       <div class="form-group">
         <label class="form-label" for="modelName">Model</label>
         <div class="form-row">
-          <input type="text" id="modelName" class="input flex-1" placeholder="Auto-detect" list="modelOptions" autocomplete="off">
-          <datalist id="modelOptions"></datalist>
+          <div class="combobox flex-1">
+            <input type="text" id="modelName" class="input" placeholder="Auto-detect" autocomplete="off">
+            <button type="button" id="modelDropdownToggle" class="combobox-toggle" title="Show model suggestions" aria-label="Show model suggestions">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div id="modelDropdown" class="combobox-dropdown hidden"></div>
+          </div>
           <button type="button" id="refreshModels" class="btn-icon" title="Refresh models" aria-label="Refresh available models">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M23 4v6h-6"/>

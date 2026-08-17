@@ -69,7 +69,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleApiKeyBtn = document.getElementById('toggleApiKey');
   const eyeIcon = document.getElementById('eyeIcon');
   const modelNameInput = document.getElementById('modelName');
-  const modelOptionsList = document.getElementById('modelOptions');
+  const modelDropdown = document.getElementById('modelDropdown');
+  const modelDropdownToggle = document.getElementById('modelDropdownToggle');
   const refreshModelsBtn = document.getElementById('refreshModels');
   const targetLanguageSelect = document.getElementById('targetLanguage');
   const parallelRequestsInput = document.getElementById('parallelRequests');
@@ -83,6 +84,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusText = document.getElementById('statusText');
 
   let isTranslating = false;
+  // Model ids reported by the current provider's /models endpoint
+  let availableModelIds = [];
+  // Filter only applies while the user is typing — opening the dropdown via
+  // the toggle always shows the full list, regardless of the current value
+  let modelFilterActive = false;
 
   // Load saved settings
   const settings = await chrome.storage.sync.get([
@@ -173,6 +179,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     await updateUrlInputDefault();
     await updateExecutionInputDefaults();
     await saveSettings();
+    // Refresh connection state and the model list for the new provider
+    testConnection();
   });
   apiUrlInput.addEventListener('change', saveSettings);
   apiKeyInput.addEventListener('change', saveSettings);
@@ -198,32 +206,113 @@ document.addEventListener('DOMContentLoaded', async () => {
       apiKeyGroup.classList.add('hidden');
     }
     modelNameInput.placeholder = PROVIDER_MODEL_PLACEHOLDERS[provider] || DEFAULT_MODEL_PLACEHOLDER;
-    updateModelOptions(provider);
+    // Models from the previous provider are no longer valid
+    availableModelIds = [];
+    renderModelDropdown();
   }
 
-  // Fill the editable model dropdown: recommended models first, then models
-  // reported by the provider (deduplicated)
-  function updateModelOptions(provider, fetchedModelIds = []) {
+  // --- Editable model combobox -------------------------------------------
+  // The dropdown always shows our per-provider recommendations plus every
+  // model reported by the provider's /models endpoint; the input stays freely
+  // editable for anything else.
+
+  function setAvailableModels(modelIds) {
+    availableModelIds = modelIds || [];
+    renderModelDropdown();
+  }
+
+  function buildModelOption(id, note) {
+    const option = document.createElement('div');
+    option.className = 'combobox-option';
+    option.setAttribute('role', 'option');
+    const name = document.createElement('span');
+    name.textContent = id;
+    option.appendChild(name);
+    if (note) {
+      const noteEl = document.createElement('span');
+      noteEl.className = 'option-note';
+      noteEl.textContent = note;
+      option.appendChild(noteEl);
+    }
+    option.addEventListener('click', async () => {
+      modelNameInput.value = id;
+      closeModelDropdown();
+      await saveSettings();
+    });
+    return option;
+  }
+
+  function renderModelDropdown() {
+    const provider = providerSelect.value;
     const recommendations = PROVIDER_MODEL_RECOMMENDATIONS[provider] || [];
-    const seen = new Set();
-    modelOptionsList.innerHTML = '';
+    const recommendedIds = new Set(recommendations.map(r => r.id));
+    const fetched = availableModelIds.filter(id => !recommendedIds.has(id));
 
-    for (const { id, note } of recommendations) {
-      seen.add(id);
-      const option = document.createElement('option');
-      option.value = id;
-      option.label = note;
-      modelOptionsList.appendChild(option);
+    const typed = modelFilterActive ? modelNameInput.value.trim().toLowerCase() : '';
+    const matchesFilter = id => !typed || id.toLowerCase().includes(typed);
+
+    modelDropdown.innerHTML = '';
+
+    const visibleRecommendations = recommendations.filter(r => matchesFilter(r.id));
+    if (visibleRecommendations.length > 0) {
+      const header = document.createElement('div');
+      header.className = 'combobox-section';
+      header.textContent = 'Recommended';
+      modelDropdown.appendChild(header);
+      visibleRecommendations.forEach(r => modelDropdown.appendChild(buildModelOption(r.id, r.note)));
     }
 
-    for (const id of fetchedModelIds) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const option = document.createElement('option');
-      option.value = id;
-      modelOptionsList.appendChild(option);
+    const visibleFetched = fetched.filter(matchesFilter);
+    if (visibleFetched.length > 0) {
+      const header = document.createElement('div');
+      header.className = 'combobox-section';
+      header.textContent = 'Available models';
+      modelDropdown.appendChild(header);
+      visibleFetched.forEach(id => modelDropdown.appendChild(buildModelOption(id)));
+    }
+
+    if (modelDropdown.childElementCount === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'combobox-empty';
+      empty.textContent = typed
+        ? 'No matching models — free text is fine'
+        : 'No models detected yet — use Test Connection or type a model name';
+      modelDropdown.appendChild(empty);
     }
   }
+
+  function openModelDropdown(withFilter = false) {
+    modelFilterActive = withFilter;
+    renderModelDropdown();
+    modelDropdown.classList.remove('hidden');
+  }
+
+  function closeModelDropdown() {
+    modelFilterActive = false;
+    modelDropdown.classList.add('hidden');
+  }
+
+  modelDropdownToggle.addEventListener('click', () => {
+    if (modelDropdown.classList.contains('hidden')) {
+      openModelDropdown(false);
+    } else {
+      closeModelDropdown();
+    }
+  });
+
+  modelNameInput.addEventListener('input', () => {
+    openModelDropdown(true);
+  });
+
+  modelNameInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeModelDropdown();
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.combobox')) {
+      closeModelDropdown();
+    }
+  });
 
   async function updateUrlInputDefault() {
     const provider = providerSelect.value;
@@ -319,7 +408,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (response.success && response.models.length > 0) {
         const modelIds = response.models.map(m => m.id);
-        updateModelOptions(providerSelect.value, modelIds);
+        setAvailableModels(modelIds);
         // Only auto-select when the user has not chosen a model yet
         if (!modelNameInput.value) {
           modelNameInput.value = modelIds[0];
@@ -476,7 +565,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (response.success) {
         updateConnectionIndicator(true);
-        updateModelOptions(providerSelect.value, response.models.map(m => m.id));
+        setAvailableModels(response.models.map(m => m.id));
         showStatus(`Connected! Found ${response.models.length} model(s)`, 'success');
       } else {
         throw new Error(response.error || 'Connection failed');
