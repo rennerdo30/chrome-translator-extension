@@ -13,17 +13,21 @@
 
 ## Overview
 
-AI Translator is a Chromium browser extension that translates web pages using AI language models. It supports both **local AI models** (LM Studio, Ollama) for complete privacy and **cloud APIs** (OpenAI, OpenRouter) for convenience.
+AI Translator is a Chromium browser extension that translates web pages using AI language models. It supports both **local AI models** (LM Studio, Ollama) for complete privacy and **cloud APIs** (OpenAI, DeepSeek, OpenRouter) for convenience.
 
 Text nodes are collected from the page, sent to the configured chat-completions endpoint in batches, and replaced in place with the translation — the original stays available on hover and can be restored in one click.
 
 ### Key Features
 
-- **Multiple AI Providers**: LM Studio, Ollama, OpenAI, and any OpenAI-compatible endpoint (OpenRouter, proxies, …)
+- **Multiple AI Providers**: LM Studio, Ollama, OpenAI, DeepSeek, and any OpenAI-compatible endpoint (OpenRouter, proxies, …)
 - **16 Target Languages**: English, Spanish, French, German, Japanese, Chinese, and more
 - **Privacy-First**: Use local models so page content never leaves your machine
 - **Visual Highlighting**: Translated text is highlighted with hover-to-see-original
-- **Batch Translation**: Page text is sent in batches of 10 chunks per request, with an in-page progress bar you can stop at any time
+- **Batch Translation**: Page text is sent in configurable batches, with an in-page progress bar you can stop at any time
+- **Parallel Execution**: Batch size and the number of simultaneous requests are configurable per provider — local providers default to sequential requests, cloud providers to 4 parallel requests
+- **Translation Cache**: Every translated segment is cached locally (keyed by provider, model, language and the exact source text) — repeated strings are translated once, revisits are served without API calls, and any changed text is automatically retranslated
+- **Auto-Translate per Site**: Opt a site in and it is translated on every visit — combined with the cache, browsing feels like the site ships a locale for your language
+- **Dynamic Content**: While translation is active, content added later (single-page apps, infinite scroll, lazy loading) is detected and translated automatically in the background
 - **Resilient**: A batch whose response does not line up is retried, then falls back to translating each chunk individually
 - **Smart Detection**: Skips `<script>`, `<style>`, `<noscript>`, editable fields, whitespace, pure numbers and text that already looks like the target language
 
@@ -64,11 +68,33 @@ Firefox is **not** working yet, even though `manifest.json` already carries a `b
 | LM Studio | Local | `http://localhost:1234` | No |
 | Ollama | Local | `http://localhost:11434` | No |
 | OpenAI | Cloud | `https://api.openai.com` | Yes |
+| DeepSeek | Cloud | `https://api.deepseek.com` | Yes |
 | OpenRouter | Cloud | `https://openrouter.ai/api/v1` | Yes |
 
-The dropdown offers three entries — LM Studio, Ollama and OpenAI. OpenRouter and other OpenAI-compatible endpoints are used by picking **OpenAI** and replacing the URL.
+The dropdown offers four entries — LM Studio, Ollama, OpenAI and DeepSeek. OpenRouter and other OpenAI-compatible endpoints are used by picking **OpenAI** and replacing the URL.
 
-Settings (provider, per-provider URL, model, API key) are kept in `chrome.storage.sync`, so they follow your browser profile across devices — including the API key. Use a local provider if you would rather nothing synced at all.
+Settings (provider, per-provider URL, model, API key, per-provider execution settings) are kept in `chrome.storage.sync`, so they follow your browser profile across devices — including the API key. Use a local provider if you would rather nothing synced at all.
+
+### Execution Settings
+
+Two settings in the popup control how page text is sent to the provider. Both are stored per provider, so switching providers switches to that provider's values:
+
+| Setting | Range | Local default (LM Studio, Ollama) | Cloud default (OpenAI, DeepSeek) |
+|---------|-------|-----------------------------------|----------------------------------|
+| Parallel Requests | 1–10 | 1 (sequential) | 4 |
+| Batch Size (text chunks per request) | 1–50 | 10 | 20 |
+
+Local servers usually process one request at a time, so raising parallel requests mainly helps with cloud APIs or local servers configured for concurrent inference.
+
+### Translation Cache & Auto-Translate
+
+Translations are cached in `chrome.storage.local` (device-local, max 10,000 entries, oldest evicted first). The cache key contains the provider, model, target language and the exact source text, so:
+
+- Identical strings on a page (menus, "Read more" links, …) are translated once and reused everywhere.
+- Reloading or revisiting a page restores translations instantly without any API call.
+- If a sentence changes on the page, it no longer matches the cache and is retranslated automatically — the progress popup shows the split, e.g. "Done — 12 from cache, 3 newly translated".
+
+Enable **Auto-translate this site** in the popup to translate a site on every visit. Together with the cache this effectively gives any website an i18n layer for your target language: cached pages render translated immediately, and only new or changed content is sent to the AI provider.
 
 ### Setting Up Local Providers
 
@@ -101,6 +127,25 @@ Settings (provider, per-provider URL, model, API key) are kept in `chrome.storag
 1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
 2. Select "OpenAI" as provider in the extension
 3. Enter your API key (starts with `sk-`)
+
+#### DeepSeek
+
+1. Get an API key from the [DeepSeek Platform](https://platform.deepseek.com/api_keys)
+2. Select "DeepSeek" as provider in the extension
+3. Enter your API key — the model defaults to `deepseek-v4-flash` if none is set
+
+> **Note**: The legacy model names `deepseek-chat` and `deepseek-reasoner` were retired by DeepSeek on 2026-07-24. Use `deepseek-v4-flash` (fast, inexpensive — recommended for translation) or `deepseek-v4-pro` (highest quality).
+
+### Model Recommendations
+
+The model field is an editable dropdown: it suggests recommended models per provider plus everything reported by the provider's `/models` endpoint (via "Test Connection" or the refresh button), and you can always type any model name manually.
+
+| Provider | Recommended | Alternative |
+|----------|-------------|-------------|
+| DeepSeek | `deepseek-v4-flash` | `deepseek-v4-pro` (higher quality) |
+| OpenAI | `gpt-5-mini` | `gpt-5-nano` (cheapest), `gpt-5.4-mini` |
+| Ollama | `qwen3` (strong multilingual) | `llama3.3`, `gemma3` |
+| LM Studio | whatever model is loaded | use the refresh button to detect |
 
 #### OpenRouter
 
@@ -227,7 +272,7 @@ Plain JavaScript, HTML and CSS — no bundler, no dependencies, nothing to insta
 | Provider not running | Start LM Studio/Ollama server |
 | Wrong URL | Verify the API endpoint URL |
 | CORS blocked | Enable CORS in LM Studio; set `OLLAMA_ORIGINS="*"` for Ollama |
-| Invalid API key | Check your OpenAI/OpenRouter API key |
+| Invalid API key | Check your OpenAI/DeepSeek/OpenRouter API key |
 
 ### "405 Method Not Allowed" Error
 
@@ -245,6 +290,7 @@ This usually means the URL path is incorrect. The extension now handles this aut
 
 ### Slow Translation
 
+- Increase "Parallel Requests" and "Batch Size" in the popup (most useful with cloud providers)
 - Use a smaller/faster model
 - Check GPU utilization for local models
 - Consider using a cloud provider for large pages
@@ -268,6 +314,7 @@ POST /v1/chat/completions
 
 Compatible services include:
 - OpenAI API
+- DeepSeek API
 - OpenRouter
 - Azure OpenAI
 - Local servers (LM Studio, Ollama, llama.cpp, vLLM)
@@ -302,6 +349,8 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 - [LM Studio](https://lmstudio.ai/)
 - [Ollama](https://ollama.ai/)
 - [OpenAI API](https://platform.openai.com/docs)
+- [DeepSeek API](https://api-docs.deepseek.com/)
+- [DeepSeek Platform (API keys)](https://platform.deepseek.com/api_keys)
 - [OpenRouter](https://openrouter.ai/)
 
 ---

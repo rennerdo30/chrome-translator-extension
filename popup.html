@@ -375,6 +375,30 @@
       visibility: hidden;
     }
 
+    /* Checkbox */
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-primary);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .checkbox {
+      width: 15px;
+      height: 15px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .checkbox:disabled,
+    .checkbox-label:has(.checkbox:disabled) {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
     /* Utility */
     .hidden {
       display: none !important;
@@ -467,6 +491,7 @@
           <option value="lmstudio">LM Studio</option>
           <option value="ollama">Ollama</option>
           <option value="openai">OpenAI</option>
+          <option value="deepseek">DeepSeek</option>
         </select>
       </div>
 
@@ -491,14 +516,28 @@
       <div class="form-group">
         <label class="form-label" for="modelName">Model</label>
         <div class="form-row">
-          <input type="text" id="modelName" class="input flex-1" placeholder="Auto-detect">
+          <input type="text" id="modelName" class="input flex-1" placeholder="Auto-detect" list="modelOptions" autocomplete="off">
+          <datalist id="modelOptions"></datalist>
           <button type="button" id="refreshModels" class="btn-icon" title="Refresh models" aria-label="Refresh available models">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M23 4v6h-6"/>
               <path d="M1 20v-6h6"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 1 20.49 15"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
             </svg>
           </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <div class="form-row">
+          <div class="flex-1">
+            <label class="form-label" for="parallelRequests">Parallel Requests</label>
+            <input type="number" id="parallelRequests" class="input" min="1" max="10" step="1" title="Number of translation requests sent at the same time (1 = sequential)">
+          </div>
+          <div class="flex-1">
+            <label class="form-label" for="batchSize">Batch Size</label>
+            <input type="number" id="batchSize" class="input" min="1" max="50" step="1" title="Text chunks combined into one request">
+          </div>
         </div>
       </div>
 
@@ -522,6 +561,13 @@
           <option value="Turkish">Turkish</option>
           <option value="Vietnamese">Vietnamese</option>
         </select>
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-label" for="autoTranslateSite" title="Automatically translate this site on every visit — cached segments load instantly, only new or changed text is retranslated">
+          <input type="checkbox" id="autoTranslateSite" class="checkbox">
+          <span>Auto-translate this site</span>
+        </label>
       </div>
     </section>
 

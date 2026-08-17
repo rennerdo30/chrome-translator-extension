@@ -1,13 +1,39 @@
+// Provider preset defaults (shared shape with popup.js PROVIDER_DEFAULT_URLS)
+const PROVIDER_DEFAULT_URLS = {
+  lmstudio: 'http://localhost:1234',
+  ollama: 'http://localhost:11434',
+  openai: 'https://api.openai.com',
+  deepseek: 'https://api.deepseek.com'
+};
+
+// Providers whose default model should be pre-selected when none is configured.
+// Note: DeepSeek retired 'deepseek-chat'/'deepseek-reasoner' on 2026-07-24;
+// the current lineup is deepseek-v4-flash (fast/cheap) and deepseek-v4-pro.
+const PROVIDER_DEFAULT_MODELS = {
+  deepseek: 'deepseek-v4-flash'
+};
+
+// Providers that authenticate with a Bearer API key
+const API_KEY_PROVIDERS = ['openai', 'deepseek'];
+
+// Translation cache (chrome.storage.local). Entries are keyed by
+// provider/model/target language/exact source text, so any change in the
+// source text (or provider setup) is a cache miss and gets retranslated.
+const CACHE_STORAGE_KEY = 'translationCache';
+const MAX_CACHE_ENTRIES = 10000; // ~2 MB of chrome.storage.local; acts as a per-site "locale file"
+
 chrome.runtime.onInstalled.addListener(async () => {
   // Only set defaults for keys that don't already exist
   const defaults = {
     provider: 'lmstudio',
-    lmStudioUrl: 'http://localhost:1234',
-    ollamaUrl: 'http://localhost:11434',
-    openaiUrl: 'https://api.openai.com',
+    lmStudioUrl: PROVIDER_DEFAULT_URLS.lmstudio,
+    ollamaUrl: PROVIDER_DEFAULT_URLS.ollama,
+    openaiUrl: PROVIDER_DEFAULT_URLS.openai,
+    deepseekUrl: PROVIDER_DEFAULT_URLS.deepseek,
     apiKey: '',
     targetLanguage: 'English',
-    model: ''
+    model: '',
+    autoTranslateSites: []
   };
 
   const existing = await chrome.storage.sync.get(Object.keys(defaults));
@@ -110,11 +136,81 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(models => sendResponse({ success: true, models }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
+  } else if (request.action === 'getCachedTranslations') {
+    getCachedTranslations(request.texts, request.targetLanguage)
+      .then(translations => sendResponse({ success: true, translations }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  } else if (request.action === 'storeCachedTranslations') {
+    storeCachedTranslations(request.entries, request.targetLanguage)
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
   }
 });
 
+// Cache key includes provider, model and target language so switching any of
+// them never reuses a stale translation; the exact source text is part of the
+// key, so a changed word on the page is a miss and gets retranslated.
+function buildCacheKey(provider, model, targetLanguage, text) {
+  return JSON.stringify([provider || 'lmstudio', model || '', targetLanguage || '', text]);
+}
+
+async function getCachedTranslations(texts, targetLanguage) {
+  const { provider, model } = await getProviderSettings();
+  const stored = await chrome.storage.local.get(CACHE_STORAGE_KEY);
+  const cache = stored[CACHE_STORAGE_KEY] || {};
+  const translations = {};
+
+  for (const text of texts || []) {
+    const entry = cache[buildCacheKey(provider, model, targetLanguage, text)];
+    if (entry && entry.translation) {
+      translations[text] = entry.translation;
+    }
+  }
+
+  console.debug(`Translation cache: ${Object.keys(translations).length}/${(texts || []).length} hits`);
+  return translations;
+}
+
+// Serialize cache writes: parallel batches finishing at the same time would
+// otherwise lose entries through read-modify-write races.
+let cacheWriteQueue = Promise.resolve();
+
+function storeCachedTranslations(entries, targetLanguage) {
+  const write = cacheWriteQueue.then(async () => {
+    if (!entries || entries.length === 0) return;
+
+    const { provider, model } = await getProviderSettings();
+    const stored = await chrome.storage.local.get(CACHE_STORAGE_KEY);
+    const cache = stored[CACHE_STORAGE_KEY] || {};
+    const now = Date.now();
+
+    for (const { text, translation } of entries) {
+      if (text && translation) {
+        cache[buildCacheKey(provider, model, targetLanguage, text)] = { translation, ts: now };
+      }
+    }
+
+    // Evict oldest entries beyond the cap
+    const keys = Object.keys(cache);
+    if (keys.length > MAX_CACHE_ENTRIES) {
+      keys.sort((a, b) => (cache[a].ts || 0) - (cache[b].ts || 0));
+      for (const key of keys.slice(0, keys.length - MAX_CACHE_ENTRIES)) {
+        delete cache[key];
+      }
+    }
+
+    await chrome.storage.local.set({ [CACHE_STORAGE_KEY]: cache });
+  });
+
+  // Keep the queue alive even if one write fails
+  cacheWriteQueue = write.catch(error => console.error('Cache write failed:', error));
+  return write;
+}
+
 async function getProviderSettings() {
-  const settings = await chrome.storage.sync.get(['provider', 'lmStudioUrl', 'ollamaUrl', 'openaiUrl', 'apiKey', 'model']);
+  const settings = await chrome.storage.sync.get(['provider', 'lmStudioUrl', 'ollamaUrl', 'openaiUrl', 'deepseekUrl', 'apiKey', 'model']);
   let baseUrl = '';
   let headers = {
     'Content-Type': 'application/json'
@@ -122,16 +218,22 @@ async function getProviderSettings() {
 
   switch (settings.provider) {
     case 'ollama':
-      baseUrl = settings.ollamaUrl || 'http://localhost:11434';
+      baseUrl = settings.ollamaUrl || PROVIDER_DEFAULT_URLS.ollama;
       break;
     case 'openai':
-      baseUrl = settings.openaiUrl || 'https://api.openai.com';
-      headers['Authorization'] = `Bearer ${settings.apiKey}`;
+      baseUrl = settings.openaiUrl || PROVIDER_DEFAULT_URLS.openai;
+      break;
+    case 'deepseek':
+      baseUrl = settings.deepseekUrl || PROVIDER_DEFAULT_URLS.deepseek;
       break;
     case 'lmstudio':
     default:
-      baseUrl = settings.lmStudioUrl || 'http://localhost:1234';
+      baseUrl = settings.lmStudioUrl || PROVIDER_DEFAULT_URLS.lmstudio;
       break;
+  }
+
+  if (API_KEY_PROVIDERS.includes(settings.provider)) {
+    headers['Authorization'] = `Bearer ${settings.apiKey}`;
   }
 
   // Remove trailing slash if present
@@ -139,7 +241,9 @@ async function getProviderSettings() {
     baseUrl = baseUrl.slice(0, -1);
   }
 
-  return { baseUrl, headers, model: settings.model, provider: settings.provider };
+  const model = settings.model || PROVIDER_DEFAULT_MODELS[settings.provider] || '';
+
+  return { baseUrl, headers, model, provider: settings.provider };
 }
 
 // Helper function to construct the correct API endpoint URL
@@ -237,18 +341,22 @@ async function fetchModels(settings) {
 
     switch (settings.provider) {
       case 'ollama':
-        baseUrl = settings.ollamaUrl || 'http://localhost:11434';
+        baseUrl = settings.ollamaUrl || PROVIDER_DEFAULT_URLS.ollama;
         break;
       case 'openai':
-        baseUrl = settings.openaiUrl || 'https://api.openai.com';
-        if (settings.apiKey) {
-          headers['Authorization'] = `Bearer ${settings.apiKey}`;
-        }
+        baseUrl = settings.openaiUrl || PROVIDER_DEFAULT_URLS.openai;
+        break;
+      case 'deepseek':
+        baseUrl = settings.deepseekUrl || PROVIDER_DEFAULT_URLS.deepseek;
         break;
       case 'lmstudio':
       default:
-        baseUrl = settings.lmStudioUrl || 'http://localhost:1234';
+        baseUrl = settings.lmStudioUrl || PROVIDER_DEFAULT_URLS.lmstudio;
         break;
+    }
+
+    if (API_KEY_PROVIDERS.includes(settings.provider) && settings.apiKey) {
+      headers['Authorization'] = `Bearer ${settings.apiKey}`;
     }
 
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
@@ -283,7 +391,7 @@ async function fetchModels(settings) {
 
       // For OpenAI-compatible APIs (OpenRouter, Together, etc.) that don't have /models endpoint
       // Just return an empty array but don't throw - the API might still work for chat
-      if (response.status === 404 && settings.provider === 'openai') {
+      if (response.status === 404 && API_KEY_PROVIDERS.includes(settings.provider)) {
         // Return a placeholder to indicate the API is likely accessible
         // User needs to manually specify the model name
         return [{ id: settings.model || 'manual-model', object: 'model', note: 'Specify model manually' }];
