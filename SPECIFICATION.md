@@ -259,6 +259,11 @@ document.createTreeWalker(
 )
 ```
 
+Minimum text length is script-aware: 4 characters for alphabetic scripts, but
+1 character when the text contains CJK characters (Chinese ideographs,
+Japanese kana, Korean hangul), since those scripts pack whole words into 1–3
+characters (e.g. 情報, 手続き).
+
 ### 6.2 Excluded Elements
 
 | Element | Reason |

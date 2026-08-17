@@ -162,12 +162,24 @@ async function processDynamicNodes() {
   await translateEntries(textEntries, activeTargetLanguage, true);
 }
 
+// Minimum lengths for translatable text. CJK scripts (Chinese ideographs,
+// Japanese kana, Korean hangul) pack whole words into 1-3 characters, so the
+// Latin minimum would wrongly skip short headings like 情報 or 手続き.
+const MIN_TEXT_LENGTH = 4;
+const MIN_TEXT_LENGTH_CJK = 1;
+const CJK_CHAR_REGEX = /[぀-ヿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ가-힯]/;
+
+function meetsMinimumLength(text) {
+  const minLength = CJK_CHAR_REGEX.test(text) ? MIN_TEXT_LENGTH_CJK : MIN_TEXT_LENGTH;
+  return text.length >= minLength;
+}
+
 // Collect translatable entries from a list of text nodes, registering each in originalTexts
 function collectTextEntries(textNodes, targetLanguage) {
   const textEntries = [];
   for (const node of textNodes) {
     const text = node.textContent.trim();
-    if (text.length > 3 && !isIgnoredText(text) && !isLikelyTargetLanguage(text, targetLanguage)) {
+    if (meetsMinimumLength(text) && !isIgnoredText(text) && !isLikelyTargetLanguage(text, targetLanguage)) {
       const index = nextEntryIndex++;
       originalTexts.set(index, { node, text });
       textEntries.push({ index, text, node });
@@ -307,9 +319,10 @@ function getTextNodes(element) {
 }
 
 function isIgnoredText(text) {
+  // Whitespace-only or number/punctuation-only content; the minimum length
+  // is handled by meetsMinimumLength() (script-aware for CJK)
   return /^[\s\n\r]*$/.test(text) ||
-    /^[0-9\s\-\.\/\(\)]*$/.test(text) ||
-    text.length < 3;
+    /^[0-9\s\-\.\/\(\)]*$/.test(text);
 }
 
 // Simple client-side language detection to filter obvious target language text

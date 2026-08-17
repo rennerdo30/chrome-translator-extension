@@ -182,7 +182,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Refresh connection state and the model list for the new provider
     testConnection();
   });
-  apiUrlInput.addEventListener('change', saveSettings);
+  apiUrlInput.addEventListener('change', async () => {
+    // A different endpoint serves different models — drop the stale list
+    availableModelIds = [];
+    renderModelDropdown();
+    await saveSettings();
+  });
   apiKeyInput.addEventListener('change', saveSettings);
   modelNameInput.addEventListener('change', saveSettings);
   targetLanguageSelect.addEventListener('change', saveSettings);
@@ -242,9 +247,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     return option;
   }
 
+  // The provider dropdown entry may point at a different OpenAI-compatible
+  // API (e.g. "OpenAI" with a DeepSeek or OpenRouter URL) — pick the
+  // recommendation set for the API the URL actually targets
+  function getRecommendationProvider() {
+    const url = (apiUrlInput.value || '').toLowerCase();
+    if (url.includes('deepseek')) return 'deepseek';
+    if (url.includes('openai')) return 'openai';
+    return providerSelect.value;
+  }
+
   function renderModelDropdown() {
-    const provider = providerSelect.value;
-    const recommendations = PROVIDER_MODEL_RECOMMENDATIONS[provider] || [];
+    let recommendations = PROVIDER_MODEL_RECOMMENDATIONS[getRecommendationProvider()] || [];
+    // Once the endpoint reports its models, only recommend what it serves
+    if (availableModelIds.length > 0) {
+      recommendations = recommendations.filter(r => availableModelIds.includes(r.id));
+    }
     const recommendedIds = new Set(recommendations.map(r => r.id));
     const fetched = availableModelIds.filter(id => !recommendedIds.has(id));
 

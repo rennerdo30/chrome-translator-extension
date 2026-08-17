@@ -29,7 +29,7 @@ Text nodes are collected from the page, sent to the configured chat-completions 
 - **Auto-Translate per Site**: Opt a site in and it is translated on every visit — combined with the cache, browsing feels like the site ships a locale for your language
 - **Dynamic Content**: While translation is active, content added later (single-page apps, infinite scroll, lazy loading) is detected and translated automatically in the background
 - **Resilient**: A batch whose response does not line up is retried, then falls back to translating each chunk individually
-- **Smart Detection**: Skips `<script>`, `<style>`, `<noscript>`, editable fields, whitespace, pure numbers and text that already looks like the target language
+- **Smart Detection**: Skips `<script>`, `<style>`, `<noscript>`, editable fields, whitespace, pure numbers and text that already looks like the target language — with script-aware length rules, so short CJK headings (e.g. 情報) are still translated
 
 ---
 
