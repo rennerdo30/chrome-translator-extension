@@ -1,21 +1,26 @@
+# Standardized Dependabot configuration.
+#
+# Minor and patch updates for each ecosystem are grouped into a single weekly
+# pull request. This keeps the review queue small and — importantly — makes it
+# impossible to split version-locked pairs (react/react-dom, @mui/material and
+# @mui/icons-material, next and eslint-config-next) across separate PRs, which
+# has broken main before.
+#
+# Major updates are intentionally NOT grouped: they arrive as individual pull
+# requests so each one gets evaluated on its own.
 version: 2
-updates:
-  # npm dependencies
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore(deps)"
 
-  # GitHub Actions
+updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
-      prefix: "chore(ci)"
+      prefix: "deps(actions):"
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

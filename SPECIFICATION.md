@@ -2,9 +2,9 @@
 
 ## Version
 
-- **Extension Version**: 1.1.0
+- **Extension Version**: 1.3.0
 - **Manifest Version**: 3
-- **Specification Date**: 2025-01-18
+- **Specification Date**: 2026-08-18
 
 ---
 
@@ -48,10 +48,10 @@ This specification covers:
 └─────────────────────────────────────────────────────────────────┘
                              │
                              ▼
-              ┌──────────────────────────────┐
-              │     External AI Providers    │
-              │  (LM Studio/Ollama/OpenAI)   │
-              └──────────────────────────────┘
+              ┌──────────────────────────────────────┐
+              │        External AI Providers         │
+              │  (LM Studio/Ollama/OpenAI/DeepSeek)  │
+              └──────────────────────────────────────┘
 ```
 
 ### 2.2 Component Responsibilities
@@ -59,9 +59,11 @@ This specification covers:
 | Component | File(s) | Responsibility |
 |-----------|---------|----------------|
 | Popup UI | `popup.html`, `popup.js` | User interface, settings management, status display |
-| Service Worker | `background.js` | API communication, translation logic, message routing |
-| Content Script | `content.js`, `content.css` | DOM manipulation, text extraction, visual rendering |
+| Service Worker | `background.js` | API communication, translation logic, message routing, translation cache |
+| Content Script | `content.js`, `content.css` | DOM manipulation, text extraction, visual rendering, auto-translate |
 | Storage | Chrome Sync API | Persistent settings storage |
+| Cache | Chrome Local Storage API | Persistent translation + image caches (device-local) |
+| Offscreen Document | `offscreen.html/js`, `vendor/tesseract/` | Bundled Tesseract OCR for image translation |
 
 ---
 
@@ -121,6 +123,7 @@ The extension implements intelligent endpoint detection:
 | LM Studio | `/v1/models` | - |
 | Ollama | `/v1/models` | `/api/tags` |
 | OpenAI | `/v1/models` | - |
+| DeepSeek | `/v1/models` | - |
 
 ---
 
@@ -134,6 +137,10 @@ The extension implements intelligent endpoint detection:
 | `translateBatch` | `{text, targetLanguage}` | `{success, translation}` |
 | `detectLanguage` | `{text}` | `{success, language}` |
 | `getModels` | `{settings}` | `{success, models[]}` |
+| `getCachedTranslations` | `{texts[], targetLanguage}` | `{success, translations: {text → translation}}` |
+| `storeCachedTranslations` | `{entries[], targetLanguage}` | `{success}` |
+| `translateImage` | `{srcUrl, tabId?}` | `{success, started}` (result arrives via tab message) |
+| `offscreenOcr` | `{imageDataUrl, languages}` | `{success, text}` (handled by the offscreen document) |
 
 ### 4.2 Service Worker → Content Script
 
@@ -141,6 +148,8 @@ The extension implements intelligent endpoint detection:
 |--------|---------|----------|
 | `toggleTranslation` | `{targetLanguage}` | `{success, isTranslating}` |
 | `getTranslationStatus` | - | `{isTranslating, hasTranslations}` |
+| `imageTranslationStarted` | `{srcUrl}` | `{success}` (shows loading overlay) |
+| `imageTranslationResult` | `{srcUrl, translation?, extractedText?, noText?, error?}` | `{success}` (shows result overlay) |
 | `ping` | - | `{pong: true}` |
 
 ### 4.3 Batch Translation Protocol
@@ -162,21 +171,38 @@ The AI model preserves this delimiter in the response, allowing the extension to
 ```typescript
 interface StorageSchema {
   // Provider configuration
-  provider: 'lmstudio' | 'ollama' | 'openai';
+  provider: 'lmstudio' | 'ollama' | 'openai' | 'deepseek';
 
   // Provider-specific URLs
   lmStudioUrl: string;  // default: 'http://localhost:1234'
   ollamaUrl: string;    // default: 'http://localhost:11434'
   openaiUrl: string;    // default: 'https://api.openai.com'
+  deepseekUrl: string;  // default: 'https://api.deepseek.com'
 
   // Authentication
-  apiKey: string;       // For OpenAI/OpenRouter
+  apiKey: string;       // For OpenAI/DeepSeek/OpenRouter
 
   // Model configuration
   model: string;        // User-specified or auto-detected
+                        // DeepSeek falls back to 'deepseek-v4-flash' when empty
 
   // Translation settings
   targetLanguage: string;  // default: 'English'
+
+  // Per-provider execution settings (parallel requests 1-10, batch size 1-50)
+  executionSettings: {
+    [provider: string]: { parallelRequests: number, batchSize: number }
+  };
+
+  // Hostnames that are translated automatically on page load
+  autoTranslateSites: string[];
+
+  // Image translation
+  visionMode: 'builtin' | 'endpoint';  // default 'builtin' (bundled Tesseract OCR)
+  visionOcrLanguages: string;          // Tesseract codes joined with '+', default 'eng'
+  visionUrl: string;                   // vision endpoint (endpoint mode), default Ollama URL
+  visionModel: string;                 // default 'qwen3-vl'
+  visionApiKey: string;                // optional Bearer key for cloud vision APIs
 }
 ```
 
@@ -188,11 +214,65 @@ interface StorageSchema {
   lmStudioUrl: 'http://localhost:1234',
   ollamaUrl: 'http://localhost:11434',
   openaiUrl: 'https://api.openai.com',
+  deepseekUrl: 'https://api.deepseek.com',
   apiKey: '',
   targetLanguage: 'English',
-  model: ''
+  model: '',
+  autoTranslateSites: []
 }
 ```
+
+Per-provider execution defaults (used when the user has not overridden them):
+
+| Provider | Parallel Requests | Batch Size |
+|----------|-------------------|------------|
+| LM Studio | 1 (sequential) | 10 |
+| Ollama | 1 (sequential) | 10 |
+| OpenAI | 4 | 20 |
+| DeepSeek | 4 | 20 |
+
+### 5.3 Chrome Local Storage (Translation Cache)
+
+```typescript
+interface LocalStorageSchema {
+  translationCache: {
+    // Key: JSON.stringify([provider, model, targetLanguage, sourceText])
+    [cacheKey: string]: { translation: string, ts: number }
+  };
+}
+```
+
+- The exact source text is part of the key, so any changed word on a page is a
+  cache miss and gets retranslated; provider, model, and target language are
+  also part of the key, so switching any of them never reuses stale entries.
+- Capacity is capped at 10,000 entries; the oldest entries (by timestamp) are
+  evicted first. Writes are serialized in the service worker to avoid
+  read-modify-write races between parallel batches.
+
+A second cache, `imageTranslationCache` (max 500 entries, same eviction), maps
+`JSON.stringify(['img', provider, model, extractor, targetLanguage, srcUrl])`
+to `{ extractedText, translation, ts }`, where `extractor` encodes the OCR
+languages or the vision model so setup changes never reuse stale extractions.
+
+### 5.4 Image Translation Pipeline
+
+Triggered from the "Translate image with AI" context menu (or a
+`translateImage` runtime message):
+
+1. The service worker fetches the image, downscales it to max 1024 px via
+   `OffscreenCanvas` and encodes it as a data URL.
+2. Text extraction, depending on `visionMode`:
+   - `builtin`: an offscreen document (`chrome.offscreen`, reason `WORKERS`)
+     runs the bundled Tesseract.js worker (`vendor/tesseract/`,
+     `workerBlobURL: false` because blob workers are blocked by the extension
+     CSP; the manifest CSP adds `wasm-unsafe-eval` for the WASM core).
+     Language training data is fetched from the tessdata CDN and cached.
+   - `endpoint`: an OpenAI-compatible chat completion with an `image_url`
+     content block is sent to the configured vision endpoint. Note that
+     DeepSeek's hosted API is text-only and cannot be used here.
+3. The extracted text is translated via the regular provider (`translateText`)
+   and delivered to the content script, which anchors an overlay below the
+   image (loading, error, and no-text states included).
 
 ---
 
@@ -216,6 +296,11 @@ document.createTreeWalker(
 )
 ```
 
+Minimum text length is script-aware: 4 characters for alphabetic scripts, but
+1 character when the text contains CJK characters (Chinese ideographs,
+Japanese kana, Korean hangul), since those scripts pack whole words into 1–3
+characters (e.g. 情報, 手続き).
+
 ### 6.2 Excluded Elements
 
 | Element | Reason |
@@ -238,7 +323,44 @@ let originalTexts: Map<Node, {text, originalNode}>;
 let translatedTexts: Map<Node, string>;
 ```
 
-### 6.4 Visual Indicators
+### 6.4 Deduplication and Cache Lookup
+
+Before any API call, the content script:
+
+1. Groups identical text strings, so each unique string is translated (and
+   cached) exactly once per page, no matter how often it occurs.
+2. Asks the service worker for cached translations of all unique strings in a
+   single message and applies hits immediately.
+3. Sends only cache misses (new or changed text) to the AI provider, in
+   batches processed by a worker pool sized by the "Parallel Requests" setting.
+
+The in-page progress UI reports the split, e.g. `Done — 12 from cache,
+3 newly translated`, so retranslation of changed content is visible to the user.
+
+### 6.5 Auto-Translate
+
+If the page's hostname is listed in `autoTranslateSites`, the content script
+translates automatically on load (silently skipping pages without translatable
+text). Combined with the cache this behaves like site-provided i18n: revisited
+pages render in the target language instantly without API calls; only new or
+changed text is fetched.
+
+### 6.6 Dynamic Content Observation
+
+While translations are active, a `MutationObserver` (childList + subtree on
+`document.body`) watches for added nodes. Additions are debounced (800 ms),
+filtered against extension-owned elements (`.lm-translated`,
+`.lm-progress-container`, `.lm-hover-tooltip`), and run through the same
+dedupe/cache/translate pipeline. If API calls are needed, the progress UI is
+shown with the title "Translating new content..."; pure cache restores are
+silent. The observer stops when the user restores the original text.
+
+The observer also watches `characterData` mutations (frameworks that update
+text nodes in place), and auto-translate starts the observer even when the
+initial page has no translatable text — SPA shells often render content only
+after load.
+
+### 6.7 Visual Indicators
 
 Translated text receives the CSS class `lm-translated`:
 
@@ -286,7 +408,8 @@ Translated text receives the CSS class `lm-translated`:
     "activeTab",      // Access current tab only
     "storage",        // Persist settings
     "scripting",      // Inject content scripts
-    "contextMenus"    // Right-click menu
+    "contextMenus",   // Right-click menus (page + image translation)
+    "offscreen"       // Offscreen document hosting the OCR engine
   ],
   "host_permissions": [
     "http://localhost:*/*",   // Local AI servers
@@ -337,17 +460,23 @@ Translated text receives the CSS class `lm-translated`:
 
 ### 10.1 Batch Processing
 
-- Text nodes are batched (configurable batch size)
+- Text nodes are batched (batch size configurable per provider, 1–50)
+- Batches are dispatched by a worker pool (parallel requests configurable per provider, 1–10)
+- Identical strings are deduplicated before batching
 - Reduces API calls and improves throughput
-- Default batch size: 10 text segments
 
-### 10.2 Memory Management
+### 10.2 Translation Cache
+
+- Cache hits skip the API entirely (see 5.3 and 6.4)
+- Cache writes are fire-and-forget from the content script and serialized in the service worker
+
+### 10.3 Memory Management
 
 - Original text maps cleared on restore
 - Translated text maps cleared on restore
 - Event listeners removed when not needed
 
-### 10.3 DOM Updates
+### 10.4 DOM Updates
 
 - Translations applied as text content updates
 - No full page re-renders
@@ -360,16 +489,17 @@ Translated text receives the CSS class `lm-translated`:
 ### 11.1 Planned Features
 
 - [ ] Selection-only translation
-- [ ] Translation history/cache
+- [x] Translation history/cache
 - [ ] Custom system prompts
 - [ ] Multiple provider profiles
 - [ ] Keyboard shortcuts
+- [ ] Cache management UI (view/clear cached translations)
 
 ### 11.2 API Enhancements
 
 - [ ] Streaming responses support
 - [ ] Token usage tracking
-- [ ] Response caching
+- [x] Response caching
 
 ---
 
@@ -467,3 +597,5 @@ User changes provider
 |---------|------|---------|
 | 1.0.0 | 2025-01-11 | Initial specification |
 | 1.1.0 | 2025-01-18 | Added URL path handling, timeouts, error messages |
+| 1.2.0 | 2026-08-17 | DeepSeek provider, per-provider execution settings (parallel requests, batch size), translation cache with dedupe, per-site auto-translate, dynamic content observation, editable model dropdown with recommendations |
+| 1.3.0 | 2026-08-18 | Image translation (built-in Tesseract OCR or vision endpoint + provider translation, overlay UI, image cache), script-aware CJK length rules, characterData/SPA-shell observation, URL-aware model recommendations |

@@ -5,30 +5,90 @@
 const PROVIDER = {
   LM_STUDIO: 'lmstudio',
   OLLAMA: 'ollama',
-  OPENAI: 'openai'
+  OPENAI: 'openai',
+  DEEPSEEK: 'deepseek'
 };
 
+// Provider preset defaults (shared shape with background.js PROVIDER_DEFAULT_URLS)
 const DEFAULT_URLS = {
   [PROVIDER.LM_STUDIO]: 'http://localhost:1234',
   [PROVIDER.OLLAMA]: 'http://localhost:11434',
-  [PROVIDER.OPENAI]: 'https://api.openai.com'
+  [PROVIDER.OPENAI]: 'https://api.openai.com',
+  [PROVIDER.DEEPSEEK]: 'https://api.deepseek.com'
 };
 
 // storage key that holds the endpoint of each provider
 const URL_STORAGE_KEY = {
   [PROVIDER.LM_STUDIO]: 'lmStudioUrl',
   [PROVIDER.OLLAMA]: 'ollamaUrl',
-  [PROVIDER.OPENAI]: 'openaiUrl'
+  [PROVIDER.OPENAI]: 'openaiUrl',
+  [PROVIDER.DEEPSEEK]: 'deepseekUrl'
 };
+
+// Providers that authenticate with a Bearer API key
+const API_KEY_PROVIDERS = [PROVIDER.OPENAI, PROVIDER.DEEPSEEK];
+
+// Per-provider hint for the model input when none is configured
+const PROVIDER_MODEL_PLACEHOLDERS = {
+  [PROVIDER.DEEPSEEK]: 'deepseek-v4-flash'
+};
+const DEFAULT_MODEL_PLACEHOLDER = 'Auto-detect';
+
+// Recommended models per provider, shown as suggestions in the editable
+// model dropdown (verified against provider docs, August 2026)
+const PROVIDER_MODEL_RECOMMENDATIONS = {
+  [PROVIDER.DEEPSEEK]: [
+    { id: 'deepseek-v4-flash', note: 'Recommended: fast, inexpensive, ideal for translation' },
+    { id: 'deepseek-v4-pro', note: 'Highest quality, slower and pricier' }
+  ],
+  [PROVIDER.OPENAI]: [
+    { id: 'gpt-5-mini', note: 'Recommended: good quality/cost balance' },
+    { id: 'gpt-5-nano', note: 'Fastest and cheapest' },
+    { id: 'gpt-5.4-mini', note: 'Newer mid-tier' }
+  ],
+  [PROVIDER.OLLAMA]: [
+    { id: 'qwen3', note: 'Strong multilingual (if installed)' },
+    { id: 'llama3.3', note: 'General purpose (if installed)' },
+    { id: 'gemma3', note: 'Lightweight (if installed)' }
+  ],
+  [PROVIDER.LM_STUDIO]: [] // suggestions come from the local server via model refresh
+};
+
+// Per-provider execution defaults (kept in sync with content.js).
+// Local servers process one request at a time, so parallel requests only
+// queue up; cloud APIs handle concurrency and larger batches well.
+const PROVIDER_EXECUTION_DEFAULTS = {
+  [PROVIDER.LM_STUDIO]: { parallelRequests: 1, batchSize: 10 },
+  [PROVIDER.OLLAMA]: { parallelRequests: 1, batchSize: 10 },
+  [PROVIDER.OPENAI]: { parallelRequests: 4, batchSize: 20 },
+  [PROVIDER.DEEPSEEK]: { parallelRequests: 4, batchSize: 20 }
+};
+const FALLBACK_EXECUTION_DEFAULTS = { parallelRequests: 1, batchSize: 10 };
+const MIN_PARALLEL_REQUESTS = 1;
+const MAX_PARALLEL_REQUESTS = 10;
+const MIN_BATCH_SIZE = 1;
+const MAX_BATCH_SIZE = 50;
+
+function getExecutionDefaults(provider) {
+  return PROVIDER_EXECUTION_DEFAULTS[provider] || FALLBACK_EXECUTION_DEFAULTS;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
 
 const SETTINGS_KEYS = [
   'provider',
   'lmStudioUrl',
   'ollamaUrl',
   'openaiUrl',
+  'deepseekUrl',
   'apiKey',
   'targetLanguage',
-  'model'
+  'model',
+  'executionSettings'
 ];
 
 const DEFAULT_PROVIDER = PROVIDER.LM_STUDIO;
@@ -73,7 +133,14 @@ const MESSAGES = {
       ? `Connected. ${formatCount(count)} models available.`
       : 'Connected. 1 model available.',
   connectionFailed: (reason) => `Connection failed: ${reason}`,
-  modelSelected: (model) => `Model set to ${model}.`,
+  modelsFoundSelected: (count, model) =>
+    isPlural(count)
+      ? `Found ${formatCount(count)} models. Model set to ${model}.`
+      : `Found 1 model. Model set to ${model}.`,
+  modelsFoundPick: (count) =>
+    isPlural(count)
+      ? `Found ${formatCount(count)} models. Open the model field to pick one.`
+      : 'Found 1 model. Open the model field to pick one.',
   noModels: 'No models found. Load a model in your provider first.',
   modelLookupFailed: (reason) => `Could not list models: ${reason}`,
   unknownError: 'Unknown error'
@@ -136,8 +203,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleApiKeyBtn = document.getElementById('toggleApiKey');
   const eyeIcon = document.getElementById('eyeIcon');
   const modelNameInput = document.getElementById('modelName');
+  const modelDropdown = document.getElementById('modelDropdown');
+  const modelDropdownToggle = document.getElementById('modelDropdownToggle');
   const refreshModelsBtn = document.getElementById('refreshModels');
   const targetLanguageSelect = document.getElementById('targetLanguage');
+  const parallelRequestsInput = document.getElementById('parallelRequests');
+  const batchSizeInput = document.getElementById('batchSize');
+  const autoTranslateSiteCheckbox = document.getElementById('autoTranslateSite');
+  const visionModeSelect = document.getElementById('visionMode');
+  const ocrLanguagesGroup = document.getElementById('ocrLanguagesGroup');
+  const visionOcrLanguagesInput = document.getElementById('visionOcrLanguages');
+  const visionEndpointGroup = document.getElementById('visionEndpointGroup');
+  const visionUrlInput = document.getElementById('visionUrl');
+  const visionModelInput = document.getElementById('visionModel');
+  const visionApiKeyInput = document.getElementById('visionApiKey');
   const translateBtn = document.getElementById('translateBtn');
   const restoreBtn = document.getElementById('restoreBtn');
   const testConnectionBtn = document.getElementById('testConnection');
@@ -146,6 +225,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusText = document.getElementById('statusText');
   const pageNotice = document.getElementById('pageNotice');
   const pageNoticeText = document.getElementById('pageNoticeText');
+
+  let isTranslating = false;
+  // Model ids reported by the current provider's /models endpoint
+  let availableModelIds = [];
+  // Filter only applies while the user is typing — opening the dropdown via
+  // the toggle always shows the full list, regardless of the current value
+  let modelFilterActive = false;
 
   const settings = await chrome.storage.sync.get(SETTINGS_KEYS);
 
@@ -156,9 +242,76 @@ document.addEventListener('DOMContentLoaded', async () => {
   apiKeyInput.value = settings.apiKey || '';
   modelNameInput.value = settings.model || '';
   targetLanguageSelect.value = settings.targetLanguage || DEFAULT_TARGET_LANGUAGE;
+  applyExecutionInputs(providerSelect.value, settings.executionSettings);
+
+  // Image translation settings
+  const visionSettings = await chrome.storage.sync.get(['visionMode', 'visionOcrLanguages', 'visionUrl', 'visionModel', 'visionApiKey']);
+  visionModeSelect.value = visionSettings.visionMode || 'builtin';
+  visionOcrLanguagesInput.value = visionSettings.visionOcrLanguages || 'eng';
+  visionUrlInput.value = visionSettings.visionUrl || 'http://localhost:11434';
+  visionModelInput.value = visionSettings.visionModel || '';
+  visionApiKeyInput.value = visionSettings.visionApiKey || '';
+  updateVisionUI();
+
+  function updateVisionUI() {
+    const builtin = visionModeSelect.value === 'builtin';
+    ocrLanguagesGroup.classList.toggle('hidden', !builtin);
+    visionEndpointGroup.classList.toggle('hidden', builtin);
+  }
+
+  async function saveVisionSettings() {
+    await chrome.storage.sync.set({
+      visionMode: visionModeSelect.value,
+      visionOcrLanguages: visionOcrLanguagesInput.value.trim() || 'eng',
+      visionUrl: visionUrlInput.value.trim(),
+      visionModel: visionModelInput.value.trim(),
+      visionApiKey: visionApiKeyInput.value
+    });
+  }
+
+  visionModeSelect.addEventListener('change', async () => {
+    updateVisionUI();
+    await saveVisionSettings();
+  });
+  visionOcrLanguagesInput.addEventListener('change', saveVisionSettings);
+  visionUrlInput.addEventListener('change', saveVisionSettings);
+  visionModelInput.addEventListener('change', saveVisionSettings);
+  visionApiKeyInput.addEventListener('change', saveVisionSettings);
 
   // Reflect what the content script is currently doing on the active tab.
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  // Auto-translate checkbox reflects whether the current site is enabled
+  let currentHostname = null;
+  try {
+    if (tab && tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+      currentHostname = new URL(tab.url).hostname;
+    }
+  } catch (error) {
+    console.warn('Could not determine current hostname:', error);
+  }
+
+  if (currentHostname) {
+    const { autoTranslateSites } = await chrome.storage.sync.get(['autoTranslateSites']);
+    autoTranslateSiteCheckbox.checked = (autoTranslateSites || []).includes(currentHostname);
+  } else {
+    autoTranslateSiteCheckbox.disabled = true;
+  }
+
+  autoTranslateSiteCheckbox.addEventListener('change', async () => {
+    if (!currentHostname) return;
+    const { autoTranslateSites } = await chrome.storage.sync.get(['autoTranslateSites']);
+    const sites = new Set(autoTranslateSites || []);
+    if (autoTranslateSiteCheckbox.checked) {
+      sites.add(currentHostname);
+    } else {
+      sites.delete(currentHostname);
+    }
+    await chrome.storage.sync.set({ autoTranslateSites: [...sites] });
+    showStatus(autoTranslateSiteCheckbox.checked
+      ? `Auto-translate enabled for ${currentHostname}`
+      : `Auto-translate disabled for ${currentHostname}`, 'success');
+  });
 
   if (tab && tab.id && !isUnsupportedUrl(tab.url)) {
     sendMessageToContentScript(tab.id, { action: ACTION.GET_TRANSLATION_STATUS })
@@ -181,12 +334,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   providerSelect.addEventListener('change', async () => {
     updateProviderUI();
     await applyProviderUrlDefault();
+    await updateExecutionInputDefaults();
+    await saveSettings();
+    // Refresh connection state and the model list for the new provider
+    testConnection();
+  });
+  apiUrlInput.addEventListener('change', async () => {
+    // A different endpoint serves different models — drop the stale list
+    availableModelIds = [];
+    renderModelDropdown();
     await saveSettings();
   });
-  apiUrlInput.addEventListener('change', saveSettings);
   apiKeyInput.addEventListener('change', saveSettings);
   modelNameInput.addEventListener('change', saveSettings);
   targetLanguageSelect.addEventListener('change', saveSettings);
+  parallelRequestsInput.addEventListener('change', saveSettings);
+  batchSizeInput.addEventListener('change', saveSettings);
 
   toggleApiKeyBtn.addEventListener('click', () => {
     const reveal = apiKeyInput.type === 'password';
@@ -199,8 +362,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   function updateProviderUI() {
-    const needsApiKey = providerSelect.value === PROVIDER.OPENAI;
-    apiKeyGroup.classList.toggle(CSS_CLASS.hidden, !needsApiKey);
+    const provider = providerSelect.value;
+    apiKeyGroup.classList.toggle(CSS_CLASS.hidden, !API_KEY_PROVIDERS.includes(provider));
+    modelNameInput.placeholder = PROVIDER_MODEL_PLACEHOLDERS[provider] || DEFAULT_MODEL_PLACEHOLDER;
+    // Models from the previous provider are no longer valid
+    availableModelIds = [];
+    renderModelDropdown();
   }
 
   async function applyProviderUrlDefault() {
@@ -208,6 +375,138 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Keep any custom endpoint the user saved for this provider.
     const saved = await chrome.storage.sync.get(Object.values(URL_STORAGE_KEY));
     apiUrlInput.value = saved[URL_STORAGE_KEY[provider]] || DEFAULT_URLS[provider] || '';
+  }
+
+  // --- Editable model combobox -------------------------------------------
+  // The dropdown always shows our per-provider recommendations plus every
+  // model reported by the provider's /models endpoint; the input stays freely
+  // editable for anything else.
+
+  function setAvailableModels(modelIds) {
+    availableModelIds = modelIds || [];
+    renderModelDropdown();
+  }
+
+  function buildModelOption(id, note) {
+    const option = document.createElement('div');
+    option.className = 'combobox-option';
+    option.setAttribute('role', 'option');
+    const name = document.createElement('span');
+    name.textContent = id;
+    option.appendChild(name);
+    if (note) {
+      const noteEl = document.createElement('span');
+      noteEl.className = 'option-note';
+      noteEl.textContent = note;
+      option.appendChild(noteEl);
+    }
+    option.addEventListener('click', async () => {
+      modelNameInput.value = id;
+      closeModelDropdown();
+      await saveSettings();
+    });
+    return option;
+  }
+
+  // The provider dropdown entry may point at a different OpenAI-compatible
+  // API (e.g. "OpenAI" with a DeepSeek or OpenRouter URL) — pick the
+  // recommendation set for the API the URL actually targets
+  function getRecommendationProvider() {
+    const url = (apiUrlInput.value || '').toLowerCase();
+    if (url.includes(PROVIDER.DEEPSEEK)) return PROVIDER.DEEPSEEK;
+    if (url.includes(PROVIDER.OPENAI)) return PROVIDER.OPENAI;
+    return providerSelect.value;
+  }
+
+  function renderModelDropdown() {
+    let recommendations = PROVIDER_MODEL_RECOMMENDATIONS[getRecommendationProvider()] || [];
+    // Once the endpoint reports its models, only recommend what it serves
+    if (availableModelIds.length > 0) {
+      recommendations = recommendations.filter(r => availableModelIds.includes(r.id));
+    }
+    const recommendedIds = new Set(recommendations.map(r => r.id));
+    const fetched = availableModelIds.filter(id => !recommendedIds.has(id));
+
+    const typed = modelFilterActive ? modelNameInput.value.trim().toLowerCase() : '';
+    const matchesFilter = id => !typed || id.toLowerCase().includes(typed);
+
+    modelDropdown.innerHTML = '';
+
+    const visibleRecommendations = recommendations.filter(r => matchesFilter(r.id));
+    if (visibleRecommendations.length > 0) {
+      const header = document.createElement('div');
+      header.className = 'combobox-section';
+      header.textContent = 'Recommended';
+      modelDropdown.appendChild(header);
+      visibleRecommendations.forEach(r => modelDropdown.appendChild(buildModelOption(r.id, r.note)));
+    }
+
+    const visibleFetched = fetched.filter(matchesFilter);
+    if (visibleFetched.length > 0) {
+      const header = document.createElement('div');
+      header.className = 'combobox-section';
+      header.textContent = 'Available models';
+      modelDropdown.appendChild(header);
+      visibleFetched.forEach(id => modelDropdown.appendChild(buildModelOption(id)));
+    }
+
+    if (modelDropdown.childElementCount === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'combobox-empty';
+      empty.textContent = typed
+        ? 'No matching models — free text is fine'
+        : 'No models detected yet — use Test Connection or type a model name';
+      modelDropdown.appendChild(empty);
+    }
+  }
+
+  function openModelDropdown(withFilter = false) {
+    modelFilterActive = withFilter;
+    renderModelDropdown();
+    modelDropdown.classList.remove(CSS_CLASS.hidden);
+  }
+
+  function closeModelDropdown() {
+    modelFilterActive = false;
+    modelDropdown.classList.add(CSS_CLASS.hidden);
+  }
+
+  modelDropdownToggle.addEventListener('click', () => {
+    if (modelDropdown.classList.contains(CSS_CLASS.hidden)) {
+      openModelDropdown(false);
+    } else {
+      closeModelDropdown();
+    }
+  });
+
+  modelNameInput.addEventListener('input', () => {
+    openModelDropdown(true);
+  });
+
+  modelNameInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeModelDropdown();
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.combobox')) {
+      closeModelDropdown();
+    }
+  });
+
+  // Fill the parallel/batch inputs with the provider's saved override or its defaults
+  function applyExecutionInputs(provider, executionSettings) {
+    const defaults = getExecutionDefaults(provider);
+    const overrides = (executionSettings && executionSettings[provider]) || {};
+
+    parallelRequestsInput.value = clampNumber(overrides.parallelRequests, MIN_PARALLEL_REQUESTS, MAX_PARALLEL_REQUESTS, defaults.parallelRequests);
+    batchSizeInput.value = clampNumber(overrides.batchSize, MIN_BATCH_SIZE, MAX_BATCH_SIZE, defaults.batchSize);
+    parallelRequestsInput.placeholder = defaults.parallelRequests;
+    batchSizeInput.placeholder = defaults.batchSize;
+  }
+
+  async function updateExecutionInputDefaults() {
+    const saved = await chrome.storage.sync.get(['executionSettings']);
+    applyExecutionInputs(providerSelect.value, saved.executionSettings);
   }
 
   // --- Actions -------------------------------------------------------------
@@ -259,13 +558,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       if (response && response.success && response.models && response.models.length > 0) {
-        const modelId = response.models[0].id;
-        modelNameInput.value = modelId;
-        await saveSettings();
-        showStatus(
-          MESSAGES.modelSelected(modelId),
-          STATUS_VARIANT.SUCCESS
-        );
+        const modelIds = response.models.map((model) => model.id);
+        setAvailableModels(modelIds);
+        // Only auto-select when the user has not chosen a model yet
+        if (!modelNameInput.value) {
+          modelNameInput.value = modelIds[0];
+          await saveSettings();
+          showStatus(MESSAGES.modelsFoundSelected(modelIds.length, modelIds[0]), STATUS_VARIANT.SUCCESS);
+        } else {
+          showStatus(MESSAGES.modelsFoundPick(modelIds.length), STATUS_VARIANT.SUCCESS);
+        }
       } else {
         showStatus(MESSAGES.noModels, STATUS_VARIANT.ERROR);
       }
@@ -331,12 +633,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     apiUrlInput.removeAttribute('aria-invalid');
 
     const provider = providerSelect.value;
+
+    // Execution overrides are stored per provider, so merge instead of replace.
+    const defaults = getExecutionDefaults(provider);
+    const parallelRequests = clampNumber(parallelRequestsInput.value, MIN_PARALLEL_REQUESTS, MAX_PARALLEL_REQUESTS, defaults.parallelRequests);
+    const batchSize = clampNumber(batchSizeInput.value, MIN_BATCH_SIZE, MAX_BATCH_SIZE, defaults.batchSize);
+    // Reflect clamped values back so the UI matches what is stored
+    parallelRequestsInput.value = parallelRequests;
+    batchSizeInput.value = batchSize;
+
+    const stored = await chrome.storage.sync.get(['executionSettings']);
+
     await chrome.storage.sync.set({
       provider,
       apiKey: apiKeyInput.value,
       model: modelNameInput.value,
       targetLanguage: targetLanguageSelect.value,
-      [URL_STORAGE_KEY[provider]]: urlValidation.url
+      [URL_STORAGE_KEY[provider]]: urlValidation.url,
+      executionSettings: {
+        ...(stored.executionSettings || {}),
+        [provider]: { parallelRequests, batchSize }
+      }
     });
     return true;
   }
@@ -420,6 +737,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       updateConnectionIndicator(true);
+      setAvailableModels(response.models.map((model) => model.id));
       showStatus(MESSAGES.connected(response.models.length), STATUS_VARIANT.SUCCESS);
     } catch (error) {
       updateConnectionIndicator(false);

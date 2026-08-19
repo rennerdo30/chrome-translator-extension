@@ -1,14 +1,18 @@
 {
   "manifest_version": 3,
   "name": "AI Translator",
-  "version": "1.0.0",
-  "description": "Translate web pages using local AI models (LM Studio, Ollama) or cloud APIs (OpenAI, OpenRouter)",
+  "version": "1.3.0",
+  "description": "Translate web pages using local AI models (LM Studio, Ollama) or cloud APIs (OpenAI, DeepSeek, OpenRouter)",
   "permissions": [
     "activeTab",
     "storage",
     "scripting",
-    "contextMenus"
+    "contextMenus",
+    "offscreen"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "host_permissions": [
     "http://localhost:*/*",
     "http://127.0.0.1:*/*",

@@ -498,6 +498,134 @@
       display: none;
     }
 
+    /* Editable model combobox */
+    .combobox {
+      position: relative;
+    }
+
+    .combobox .input {
+      padding-right: 32px;
+    }
+
+    .combobox-toggle {
+      position: absolute;
+      top: 0;
+      right: 0;
+      height: 100%;
+      width: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    }
+
+    .combobox-toggle:hover {
+      color: var(--text-primary);
+    }
+
+    .combobox-toggle svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .combobox-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 200px;
+      overflow-y: auto;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      z-index: 100;
+    }
+
+    .combobox-section {
+      padding: 6px 12px 2px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .combobox-option {
+      padding: 7px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+
+    .combobox-option:hover,
+    .combobox-option.active {
+      background: var(--accent-light);
+    }
+
+    .combobox-option .option-note {
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .combobox-empty {
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Hint text */
+    .hint {
+      margin-top: 6px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--text-muted);
+    }
+
+    .hint code {
+      font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+      font-size: 10px;
+      background: var(--bg-tertiary);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    /* Checkbox */
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-primary);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .checkbox {
+      width: 15px;
+      height: 15px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .checkbox:disabled,
+    .checkbox-label:has(.checkbox:disabled) {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 12px 0;
+    }
+
     /* Busy indicators */
     .spinner {
       flex-shrink: 0;
@@ -609,6 +737,7 @@
           <option value="lmstudio">LM Studio</option>
           <option value="ollama">Ollama</option>
           <option value="openai">OpenAI compatible</option>
+          <option value="deepseek">DeepSeek</option>
         </select>
       </div>
 
@@ -637,16 +766,38 @@
       <div class="form-group">
         <label class="form-label" for="modelName">Model</label>
         <div class="form-row">
-          <input type="text" id="modelName" class="input flex-1" placeholder="Auto-detect"
-                 spellcheck="false" autocomplete="off" autocapitalize="off">
+          <div class="combobox flex-1">
+            <input type="text" id="modelName" class="input" placeholder="Auto-detect"
+                   spellcheck="false" autocomplete="off" autocapitalize="off">
+            <button type="button" id="modelDropdownToggle" class="combobox-toggle"
+                    title="Show model suggestions" aria-label="Show model suggestions">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div id="modelDropdown" class="combobox-dropdown hidden"></div>
+          </div>
           <button type="button" id="refreshModels" class="btn-icon"
                   aria-label="Detect available models" title="Detect available models">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M23 4v6h-6"/>
               <path d="M1 20v-6h6"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 1 20.49 15"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
             </svg>
           </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <div class="form-row">
+          <div class="flex-1">
+            <label class="form-label" for="parallelRequests">Parallel Requests</label>
+            <input type="number" id="parallelRequests" class="input" min="1" max="10" step="1" title="Number of translation requests sent at the same time (1 = sequential)">
+          </div>
+          <div class="flex-1">
+            <label class="form-label" for="batchSize">Batch Size</label>
+            <input type="number" id="batchSize" class="input" min="1" max="50" step="1" title="Text chunks combined into one request">
+          </div>
         </div>
       </div>
 
@@ -670,6 +821,45 @@
           <option value="Turkish">Turkish</option>
           <option value="Vietnamese">Vietnamese</option>
         </select>
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-label" for="autoTranslateSite" title="Automatically translate this site on every visit — cached segments load instantly, only new or changed text is retranslated">
+          <input type="checkbox" id="autoTranslateSite" class="checkbox">
+          <span>Auto-translate this site</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <div class="form-group">
+        <label class="form-label" for="visionMode">Image Translation</label>
+        <select id="visionMode" class="select">
+          <option value="builtin">Built-in OCR (no setup needed)</option>
+          <option value="endpoint">Vision model endpoint</option>
+        </select>
+        <p class="hint">Right-click any image &rarr; "Translate image with AI". The text is extracted, then translated by your provider above.</p>
+      </div>
+
+      <div class="form-group" id="ocrLanguagesGroup">
+        <label class="form-label" for="visionOcrLanguages">OCR Languages</label>
+        <input type="text" id="visionOcrLanguages" class="input" placeholder="eng" title="Tesseract language codes joined with +, e.g. eng+jpn+deu">
+        <p class="hint">Language codes joined with +, e.g. <code>eng+jpn+deu</code>. Language data is downloaded once and cached.</p>
+      </div>
+
+      <div class="hidden" id="visionEndpointGroup">
+        <div class="form-group">
+          <label class="form-label" for="visionUrl">Vision Endpoint</label>
+          <input type="url" id="visionUrl" class="input" placeholder="http://localhost:11434">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="visionModel">Vision Model</label>
+          <input type="text" id="visionModel" class="input" placeholder="qwen3-vl">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="visionApiKey">Vision API Key (optional)</label>
+          <input type="password" id="visionApiKey" class="input" placeholder="Only for cloud vision APIs">
+        </div>
       </div>
     </section>
 

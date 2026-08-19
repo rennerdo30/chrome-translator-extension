@@ -4,12 +4,13 @@ This file provides comprehensive guidance for AI assistants (like Claude Code) w
 
 ## Project Overview
 
-**AI Translator** is a Chrome Extension (Manifest V3) that translates web pages using AI models. It supports three providers:
+**AI Translator** is a Chrome Extension (Manifest V3) that translates web pages using AI models. It supports four providers:
 - **LM Studio**: Local AI models for privacy-focused translation
 - **Ollama**: Local open-source AI models
 - **OpenAI**: Cloud-based translation with API key authentication
+- **DeepSeek**: Cloud-based translation (OpenAI-compatible API, default model `deepseek-v4-flash`)
 
-**Core Value Proposition**: Privacy-first translation using local AI models, with fallback to cloud services.
+**Core Value Proposition**: Privacy-first translation using local AI models, with fallback to cloud services. With the persistent translation cache and per-site auto-translate, the extension effectively acts as an i18n layer for any website: revisited pages render in the target language instantly, and only new or changed text is sent to the AI provider.
 
 ## Architecture Deep Dive
 
@@ -58,12 +59,13 @@ This file provides comprehensive guidance for AI assistants (like Claude Code) w
 - **DO NOT**: Add unnecessary permissions (privacy-focused extension)
 
 #### `background.js` (Service Worker)
-- **Purpose**: API communication and translation logic
+- **Purpose**: API communication, translation logic, translation cache
 - **Key Functions**:
   - `translateText()`: Single text segment translation
   - `translateBatchText()`: Batch translation with `<<<LM_SEPARATOR>>>`
   - `getProviderSettings()`: Provider-specific config
   - `fetchModels()`: Model detection
+  - `getCachedTranslations()` / `storeCachedTranslations()`: Persistent translation cache in `chrome.storage.local`, keyed by provider + model + target language + exact source text (changed text = cache miss = retranslation). Max 10,000 entries, oldest evicted; writes serialized via a promise queue
 - **Important**: Service workers are ephemeral and restart frequently
 - **State Management**: Use chrome.storage, NOT global variables
 - **API Calls**: All fetch() calls must handle CORS properly
@@ -72,6 +74,11 @@ This file provides comprehensive guidance for AI assistants (like Claude Code) w
 - **Purpose**: DOM manipulation and text extraction
 - **Key Responsibilities**:
   - Find translatable text nodes (exclude `<script>`, `<style>`, `<noscript>`)
+  - Deduplicate identical strings (each unique string translated/cached once per page)
+  - Look up the translation cache before any API call; only misses are sent
+  - Batch cache misses through a worker pool (per-provider "Parallel Requests" and "Batch Size" settings, resolved in `getExecutionSettings()`)
+  - Observe DOM mutations while translation is active and translate dynamically added content (SPAs, infinite scroll); progress UI shows "Translating new content..." when API calls are needed, cache-only restores stay silent
+  - Auto-translate on load when the hostname is in `autoTranslateSites`
   - Store original text for restoration
   - Apply visual highlighting
   - Manage translation state
@@ -179,6 +186,31 @@ Model: User-specified (gpt-3.5-turbo, gpt-4, etc.)
 - Billing issues → 403 Forbidden
 
 **Security**: API key stored in chrome.storage.sync (encrypted by browser)
+
+### DeepSeek
+```javascript
+// Default configuration
+URL: https://api.deepseek.com
+Endpoint: /v1/chat/completions
+Auth: Bearer token (API key required)
+Model: deepseek-v4-flash (default when none is set) or deepseek-v4-pro
+```
+
+**Note**: `deepseek-chat` and `deepseek-reasoner` were retired on 2026-07-24 — do not use them in defaults or recommendations.
+
+**Common Issues**:
+- Same as OpenAI (401/403/429 semantics); DeepSeek requires a topped-up balance
+- `/v1/models` works like OpenAI's, so "Test Connection" and model refresh behave identically
+
+**Security**: API key stored in chrome.storage.sync (encrypted by browser)
+
+## Execution Settings and Caching (Cross-Cutting)
+
+Two mechanisms affect every translation flow — keep them in mind for any change:
+
+1. **Per-provider execution settings** (`executionSettings` in `chrome.storage.sync`): `parallelRequests` (1–10) and `batchSize` (1–50) with per-provider defaults (local providers 1/10, cloud providers 4/20). The defaults table is intentionally duplicated in `popup.js` and `content.js` (`PROVIDER_EXECUTION_DEFAULTS`) — keep both in sync.
+2. **Translation cache** (`translationCache` in `chrome.storage.local`): consulted before every API call, written after every successful translation. The key contains provider, model, target language and the exact source text, so provider/model/language switches and source-text changes never reuse stale entries. Also powers per-site auto-translate (`autoTranslateSites`) and dynamic-content translation.
+3. **Image translation** (context menu on images): two-stage pipeline because DeepSeek's hosted API is text-only — text is extracted either by the bundled Tesseract OCR (default; offscreen document, `vendor/tesseract/`, manifest CSP includes `wasm-unsafe-eval`, `workerBlobURL: false`) or by an OpenAI-compatible vision endpoint, then translated by the regular provider. Results cached in `imageTranslationCache`.
 
 ## Development Guidelines
 

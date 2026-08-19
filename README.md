@@ -13,25 +13,33 @@
 
 ## Overview
 
-AI Translator is a browser extension that translates the page you are reading with an AI language
-model of your choice. Point it at a **local model** (LM Studio or Ollama) to keep page content on
-your own machine, or at any **OpenAI-compatible cloud API** (OpenAI, OpenRouter, …) when you prefer
-a hosted model.
+AI Translator is a Chromium browser extension that translates the page you are reading with an AI
+language model of your choice. Point it at a **local model** (LM Studio or Ollama) to keep page
+content on your own machine, or at a **cloud API** (OpenAI, DeepSeek, OpenRouter and any other
+OpenAI-compatible endpoint) when you prefer a hosted model.
+
+Text nodes are collected from the page, sent to the configured chat-completions endpoint in batches, and replaced in place with the translation — the original stays available on hover and can be restored in one click.
 
 It is loaded from source as an unpacked extension: there is no build step, no bundler and no
 tracking. The whole extension is plain HTML, CSS and JavaScript on Manifest V3.
 
 ### Key features
 
-- **Bring your own model**: LM Studio, Ollama, or any OpenAI-compatible endpoint
-- **16 target languages**: English, Spanish, French, German, Japanese, Chinese and more
-- **Local by default**: with LM Studio or Ollama, no page text leaves your machine
-- **Hover to compare**: translated passages are marked with a dashed underline and reveal the
-  original text on hover
-- **Batch translation** with a progress panel you can cancel at any time
+- **Multiple AI Providers**: LM Studio, Ollama, OpenAI, DeepSeek, and any OpenAI-compatible endpoint (OpenRouter, proxies, …)
+- **16 Target Languages**: English, Spanish, French, German, Japanese, Chinese, and more
+- **Privacy-First**: Use local models so page content never leaves your machine
+- **Visual Highlighting**: Translated text is highlighted with hover-to-see-original
+- **Batch Translation**: Page text is sent in configurable batches, with an in-page progress bar you can stop at any time
+- **Parallel Execution**: Batch size and the number of simultaneous requests are configurable per provider — local providers default to sequential requests, cloud providers to 4 parallel requests
+- **Translation Cache**: Every translated segment is cached locally (keyed by provider, model, language and the exact source text) — repeated strings are translated once, revisits are served without API calls, and any changed text is automatically retranslated
+- **Auto-Translate per Site**: Opt a site in and it is translated on every visit — combined with the cache, browsing feels like the site ships a locale for your language
+- **Dynamic Content**: While translation is active, content added later (single-page apps, infinite scroll, lazy loading, in-place text updates) is detected and translated automatically in the background
+- **Image Translation**: Right-click any image → "Translate image with AI" — text is extracted by the bundled OCR engine (no setup, works with text-only APIs like DeepSeek) or an optional vision-model endpoint, translated by your provider, and shown as an overlay on the image
+- **Resilient**: A batch whose response does not line up is retried, then falls back to translating each chunk individually
+- **Smart Detection**: Skips `<script>`, `<style>`, `<noscript>`, editable fields, whitespace, pure numbers and text that already looks like the target language — with script-aware length rules, so short CJK headings (e.g. 情報) are still translated
+- **Hover to compare**: translated passages are marked with a dashed underline and reveal the original text on hover
 - **One-click restore** of the original page
-- **Light and dark popup**, following your operating-system preference
-- **Cross-browser**: Chrome, Edge, Brave and Firefox (Manifest V3)
+- **Light and dark UI**: both the popup and the widgets injected into pages follow your operating-system preference and honour `prefers-reduced-motion`
 
 ---
 
@@ -45,21 +53,19 @@ tracking. The whole extension is plain HTML, CSS and JavaScript on Manifest V3.
    cd chrome-translator-extension
    ```
 
-2. **Install dependencies** (optional, for icon generation):
-   ```bash
-   npm install
-   ```
+   There is no build step — the extension loads straight from the source folder.
 
-3. **Load in Chrome/Edge/Brave**:
+2. **Load in Chrome/Edge/Brave**:
    - Navigate to `chrome://extensions/` (or `edge://extensions/`)
    - Enable "Developer mode"
    - Click "Load unpacked"
    - Select the extension folder
 
-4. **Load in Firefox**:
-   - Navigate to `about:debugging#/runtime/this-firefox`
-   - Click "Load Temporary Add-on"
-   - Select `manifest.json`
+### Browser support
+
+Chrome, Edge and Brave (any Chromium browser with Manifest V3) are supported.
+
+Firefox is **not** working yet, even though `manifest.json` already carries a `browser_specific_settings.gecko` block: the background script is declared only as `background.service_worker`, and Firefox does not implement background service workers for MV3 — it needs `background.scripts` as well. Until that is added (and the code checked against Firefox's event-page lifecycle), loading it via `about:debugging` will not translate anything.
 
 ---
 
@@ -67,17 +73,49 @@ tracking. The whole extension is plain HTML, CSS and JavaScript on Manifest V3.
 
 ### Supported AI Providers
 
-The popup offers three provider entries. "OpenAI compatible" works with any service that speaks the
-OpenAI Chat Completions API, so OpenRouter and similar gateways are configured through it by
-changing the endpoint. Each provider keeps its own endpoint, so switching back and forth does not
-lose a custom URL.
-
 | Provider in the popup | Type | Default endpoint | API key |
 |-----------------------|------|------------------|---------|
 | LM Studio | Local | `http://localhost:1234` | Not needed |
 | Ollama | Local | `http://localhost:11434` | Not needed |
 | OpenAI compatible | Cloud | `https://api.openai.com` | Required |
+| DeepSeek | Cloud | `https://api.deepseek.com` | Required |
 | OpenAI compatible (OpenRouter) | Cloud | `https://openrouter.ai/api/v1` | Required |
+
+The dropdown offers four entries — LM Studio, Ollama, **OpenAI compatible** and DeepSeek. OpenRouter and any other service that speaks the OpenAI Chat Completions API are configured by picking **OpenAI compatible** and replacing the endpoint. Each provider keeps its own endpoint, so switching back and forth does not lose a custom URL.
+
+Settings (provider, per-provider URL, model, API key, per-provider execution settings) are kept in `chrome.storage.sync`, so they follow your browser profile across devices — including the API key. Use a local provider if you would rather nothing synced at all.
+
+### Execution Settings
+
+Two settings in the popup control how page text is sent to the provider. Both are stored per provider, so switching providers switches to that provider's values:
+
+| Setting | Range | Local default (LM Studio, Ollama) | Cloud default (OpenAI, DeepSeek) |
+|---------|-------|-----------------------------------|----------------------------------|
+| Parallel Requests | 1–10 | 1 (sequential) | 4 |
+| Batch Size (text chunks per request) | 1–50 | 10 | 20 |
+
+Local servers usually process one request at a time, so raising parallel requests mainly helps with cloud APIs or local servers configured for concurrent inference.
+
+### Translation Cache & Auto-Translate
+
+Translations are cached in `chrome.storage.local` (device-local, max 10,000 entries, oldest evicted first). The cache key contains the provider, model, target language and the exact source text, so:
+
+- Identical strings on a page (menus, "Read more" links, …) are translated once and reused everywhere.
+- Reloading or revisiting a page restores translations instantly without any API call.
+- If a sentence changes on the page, it no longer matches the cache and is retranslated automatically — the progress popup shows the split, e.g. "Done — 12 from cache, 3 newly translated".
+
+Enable **Auto-translate this site** in the popup to translate a site on every visit. Together with the cache this effectively gives any website an i18n layer for your target language: cached pages render translated immediately, and only new or changed content is sent to the AI provider.
+
+### Image Translation
+
+Right-click any image and pick **"Translate image with AI"**. The pipeline has two stages, because several translation APIs (including DeepSeek's hosted API) accept text only:
+
+1. **Text extraction** — one of two modes, selectable in the popup:
+   - **Built-in OCR** (default): a bundled [Tesseract.js](https://github.com/naptha/tesseract.js) engine runs inside the extension — no server, no extra API key. Set the OCR languages as `+`-joined [Tesseract codes](https://tesseract-ocr.github.io/tessdoc/Data-Files-in-different-versions.html) (e.g. `eng+jpn+deu`); language data is downloaded once from the tessdata CDN and cached.
+   - **Vision model endpoint**: any OpenAI-compatible endpoint with a vision-capable model (e.g. `qwen3-vl` via Ollama, or GPT-5-family via OpenAI). Note: DeepSeek's hosted API does **not** accept images.
+2. **Translation** — the extracted text is translated by your regular provider and shown as an overlay below the image (hover shows the extracted original).
+
+Results are cached per image URL, so repeated requests are instant and free.
 
 ### Setting Up Local Providers
 
@@ -110,6 +148,25 @@ lose a custom URL.
 1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
 2. Select "OpenAI compatible" as provider in the extension
 3. Enter your API key (starts with `sk-`)
+
+#### DeepSeek
+
+1. Get an API key from the [DeepSeek Platform](https://platform.deepseek.com/api_keys)
+2. Select "DeepSeek" as provider in the extension
+3. Enter your API key — the model defaults to `deepseek-v4-flash` if none is set
+
+> **Note**: The legacy model names `deepseek-chat` and `deepseek-reasoner` were retired by DeepSeek on 2026-07-24. Use `deepseek-v4-flash` (fast, inexpensive — recommended for translation) or `deepseek-v4-pro` (highest quality).
+
+### Model Recommendations
+
+The model field is an editable dropdown: it suggests recommended models per provider plus everything reported by the provider's `/models` endpoint (via "Test Connection" or the refresh button), and you can always type any model name manually.
+
+| Provider | Recommended | Alternative |
+|----------|-------------|-------------|
+| DeepSeek | `deepseek-v4-flash` | `deepseek-v4-pro` (higher quality) |
+| OpenAI | `gpt-5-mini` | `gpt-5-nano` (cheapest), `gpt-5.4-mini` |
+| Ollama | `qwen3` (strong multilingual) | `llama3.3`, `gemma3` |
+| LM Studio | whatever model is loaded | use the refresh button to detect |
 
 #### OpenRouter
 
@@ -198,8 +255,10 @@ chrome-translator-extension/
 ├── content.css          # Styles for translated elements
 ├── popup.html           # Extension popup UI, including its design tokens and CSS
 ├── popup.js             # Popup behaviour (settings, model detection, connection test)
+├── offscreen.html       # Offscreen document hosting the OCR engine
+├── offscreen.js         # OCR message handling (Tesseract worker)
+├── vendor/tesseract/    # Bundled Tesseract.js (OCR for image translation)
 ├── icons/               # Extension icons (16, 48, 128px)
-├── generate-icons.js    # Regenerates the PNG icons from icons/icon.svg
 ├── SPECIFICATION.md     # Technical specification
 ├── CONTRIBUTING.md      # Contribution guidelines
 ├── LICENSE              # MIT License
@@ -218,26 +277,14 @@ chrome-translator-extension/
   the widgets injected into pages); both ship a light and a dark theme driven by
   `prefers-color-scheme` and honour `prefers-reduced-motion`
 - No remote fonts, styles or scripts, as required by the extension CSP
-- The only dev dependency is [sharp](https://sharp.pixelplumbing.com/), used to render the PNG icons
+- No npm dependencies and no lockfile; Tesseract.js is vendored under `vendor/tesseract/`
 
 ### Prerequisites
 
-- Chrome, Edge, Brave or Firefox
-- Node.js 18+ only if you want to regenerate the icons
+- Chrome, Edge or Brave
+- A reachable AI provider (local or cloud) to translate against
 
-### Local Development
-
-```bash
-# Clone repository
-git clone https://github.com/rennerdo30/chrome-translator-extension.git
-cd chrome-translator-extension
-
-# Optional: only needed for icon generation
-npm install
-
-# Regenerate icons after editing icons/icon.svg
-npm run generate-icons
-```
+Plain JavaScript, HTML and CSS — no bundler, nothing to install. The only third-party library is Tesseract.js, vendored under `vendor/tesseract/` for the built-in image OCR.
 
 ### Testing Changes
 
@@ -263,7 +310,7 @@ npm run generate-icons
 | Provider not running | Start LM Studio/Ollama server |
 | Wrong URL | Verify the API endpoint URL |
 | CORS blocked | Enable CORS in LM Studio; set `OLLAMA_ORIGINS="*"` for Ollama |
-| Invalid API key | Check your OpenAI/OpenRouter API key |
+| Invalid API key | Check your OpenAI/DeepSeek/OpenRouter API key |
 
 ### "405 Method Not Allowed" Error
 
@@ -281,6 +328,7 @@ This usually means the URL path is incorrect. The extension now handles this aut
 
 ### Slow Translation
 
+- Increase "Parallel Requests" and "Batch Size" in the popup (most useful with cloud providers)
 - Use a smaller/faster model
 - Check GPU utilization for local models
 - Consider using a cloud provider for large pages
@@ -304,6 +352,7 @@ POST /v1/chat/completions
 
 Compatible services include:
 - OpenAI API
+- DeepSeek API
 - OpenRouter
 - Azure OpenAI
 - Local servers (LM Studio, Ollama, llama.cpp, vLLM)
@@ -350,6 +399,8 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 - [LM Studio](https://lmstudio.ai/)
 - [Ollama](https://ollama.ai/)
 - [OpenAI API](https://platform.openai.com/docs)
+- [DeepSeek API](https://api-docs.deepseek.com/)
+- [DeepSeek Platform (API keys)](https://platform.deepseek.com/api_keys)
 - [OpenRouter](https://openrouter.ai/)
 
 ---
