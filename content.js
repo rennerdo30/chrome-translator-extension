@@ -18,6 +18,12 @@ const DYNAMIC_SCAN_DEBOUNCE_MS = 800; // Collect DOM mutations before translatin
 // Extension-owned elements that must never be picked up as page content
 const OWN_UI_SELECTOR = '.lm-translated, .lm-progress-container, .lm-hover-tooltip';
 
+// i18n helper: falls back to the given English text if the message is missing
+function t(key, substitutions, fallback) {
+  const message = chrome.i18n.getMessage(key, substitutions);
+  return message || fallback || key;
+}
+
 let isTranslating = false;
 let shouldStopTranslation = false;
 let originalTexts = new Map();
@@ -61,7 +67,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.action === 'getTranslationStatus') {
     sendResponse({ isTranslating, hasTranslations: translatedTexts.size > 0 });
   } else if (request.action === 'imageTranslationStarted') {
-    showImageOverlay(request.srcUrl, 'Translating image...', { loading: true });
+    showImageOverlay(request.srcUrl, t('imageTranslating', undefined, 'Translating image...'), { loading: true });
     sendResponse({ success: true });
   } else if (request.action === 'imageTranslationResult') {
     handleImageTranslationResult(request);
@@ -79,9 +85,9 @@ const imageOverlays = new Map(); // srcUrl -> overlay element
 
 function handleImageTranslationResult(result) {
   if (result.error) {
-    showImageOverlay(result.srcUrl, `Image translation failed: ${result.error}`, { error: true });
+    showImageOverlay(result.srcUrl, t('imageFailed', [result.error], `Image translation failed: ${result.error}`), { error: true });
   } else if (result.noText) {
-    showImageOverlay(result.srcUrl, 'No readable text found in this image.');
+    showImageOverlay(result.srcUrl, t('imageNoText', undefined, 'No readable text found in this image.'));
   } else {
     showImageOverlay(result.srcUrl, result.translation, { original: result.extractedText });
   }
@@ -107,7 +113,7 @@ function showImageOverlay(srcUrl, text, options = {}) {
   const closeBtn = document.createElement('button');
   closeBtn.className = 'lm-image-overlay-close';
   closeBtn.textContent = '×';
-  closeBtn.title = 'Close';
+  closeBtn.title = t('titleClose', undefined, 'Close');
   closeBtn.addEventListener('click', () => removeImageOverlay(srcUrl));
   overlay.appendChild(closeBtn);
 
@@ -115,7 +121,7 @@ function showImageOverlay(srcUrl, text, options = {}) {
   textEl.className = 'lm-image-overlay-text';
   textEl.textContent = text;
   if (options.original) {
-    textEl.title = `Original: ${options.original}`;
+    textEl.title = t('titleOriginal', [options.original], `Original: ${options.original}`);
   }
   overlay.appendChild(textEl);
 
@@ -284,7 +290,7 @@ async function translatePage(targetLanguage, isAuto = false) {
       // keep watching so that content gets translated when it arrives
       startDynamicObserver();
     } else {
-      alert('No translatable text found on this page.');
+      alert(t('noTranslatableText', undefined, 'No translatable text found on this page.'));
     }
     isTranslating = false;
     return;
@@ -342,7 +348,7 @@ async function translateEntries(textEntries, targetLanguage, isDynamic) {
   if (workItems.length === 0) {
     if (!isDynamic) {
       // Fully served from cache — seamless restore, just tell the user briefly
-      showCompletionNotice(`Restored ${cacheStats.restored} segments from cache`);
+      showCompletionNotice(t('restoredFromCache', [String(cacheStats.restored)], `Restored ${cacheStats.restored} segments from cache`));
       isTranslating = false;
     }
     addHoverListeners();
@@ -461,7 +467,9 @@ async function processBatches(workItems, targetLanguage, isDynamic = false) {
   console.log(`Processing ${batches.length} batches (${workItems.length} unique texts, batch size ${batchSize}, ${parallelRequests} parallel request(s))`);
 
   // Show progress for dynamic additions too — only pure cache restores are silent
-  createProgressUI(batches.length, isDynamic ? 'Translating new content...' : 'Translating Page...');
+  createProgressUI(batches.length, isDynamic
+    ? t('progressTranslatingNew', undefined, 'Translating new content...')
+    : t('progressTranslating', undefined, 'Translating Page...'));
 
   let completedBatches = 0;
   let nextBatchIndex = 0;
@@ -579,7 +587,7 @@ function applyTranslation(entry, translation) {
     span.textContent = translation;
     span.classList.add('lm-translated');
     span.setAttribute('data-original', entry.text);
-    span.setAttribute('title', `Original: ${entry.text}`);
+    span.setAttribute('title', t('titleOriginal', [entry.text], `Original: ${entry.text}`));
 
     try {
       originalEntry.node.parentNode.replaceChild(span, originalEntry.node);
@@ -760,7 +768,10 @@ function scheduleProgressRemoval() {
   progressRemovalTimer = setTimeout(removeProgressUI, COMPLETION_NOTICE_DURATION_MS);
 }
 
-function createProgressUI(totalBatches, title = 'Translating Page...') {
+function createProgressUI(totalBatches, title) {
+  if (!title) {
+    title = t('progressTranslating', undefined, 'Translating Page...');
+  }
   if (progressContainer) removeProgressUI();
   // A stale auto-hide timer from a previous run must not remove the new UI
   if (progressRemovalTimer) {
@@ -774,14 +785,14 @@ function createProgressUI(totalBatches, title = 'Translating Page...') {
   progressContainer.innerHTML = `
     <div class="lm-progress-header">
       <span></span>
-      <button class="lm-close-btn" title="Stop Translation">
+      <button class="lm-close-btn">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
     <div class="lm-progress-bar-bg">
       <div class="lm-progress-bar-fill"></div>
     </div>
-    <div class="lm-progress-status">0 / ${totalBatches} batches</div>
+    <div class="lm-progress-status"></div>
   `;
 
   document.body.appendChild(progressContainer);
@@ -791,8 +802,10 @@ function createProgressUI(totalBatches, title = 'Translating Page...') {
 
   progressBarFill = progressContainer.querySelector('.lm-progress-bar-fill');
   progressStatus = progressContainer.querySelector('.lm-progress-status');
+  progressStatus.textContent = t('progressBatches', ['0', String(totalBatches)], `0 / ${totalBatches} batches`);
 
   const closeBtn = progressContainer.querySelector('.lm-close-btn');
+  closeBtn.title = t('titleStopTranslation', undefined, 'Stop Translation');
   closeBtn.addEventListener('click', () => {
     shouldStopTranslation = true;
     removeProgressUI();
@@ -809,14 +822,16 @@ function updateProgressUI(completed, total, isDone = false) {
 
   if (isDone) {
     progressStatus.textContent = cacheStats.restored > 0
-      ? `Done — ${cacheStats.restored} from cache, ${cacheStats.translated} newly translated`
-      : 'Translation Complete!';
+      ? t('progressDoneCache', [String(cacheStats.restored), String(cacheStats.translated)],
+          `Done — ${cacheStats.restored} from cache, ${cacheStats.translated} newly translated`)
+      : t('progressComplete', undefined, 'Translation Complete!');
     const header = progressContainer.querySelector('.lm-progress-header span');
-    if (header) header.textContent = 'Done';
+    if (header) header.textContent = t('progressDone', undefined, 'Done');
   } else {
     progressStatus.textContent = cacheStats.restored > 0
-      ? `${completed} / ${total} batches · ${cacheStats.restored} from cache`
-      : `${completed} / ${total} batches`;
+      ? t('progressBatchesCache', [String(completed), String(total), String(cacheStats.restored)],
+          `${completed} / ${total} batches · ${cacheStats.restored} from cache`)
+      : t('progressBatches', [String(completed), String(total)], `${completed} / ${total} batches`);
   }
 }
 

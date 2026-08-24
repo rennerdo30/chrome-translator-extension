@@ -76,12 +76,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   try {
     chrome.contextMenus.create({
       id: "translatePage",
-      title: "Translate with AI",
+      title: chrome.i18n.getMessage('menuTranslatePage') || 'Translate with AI',
       contexts: ["page", "selection"]
     });
     chrome.contextMenus.create({
       id: "translateImage",
-      title: "Translate image with AI",
+      title: chrome.i18n.getMessage('menuTranslateImage') || 'Translate image with AI',
       contexts: ["image"]
     });
   } catch (e) {

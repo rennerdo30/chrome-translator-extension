@@ -19,10 +19,6 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Validate manifest.json
         run: |
@@ -61,7 +57,7 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           echo "Checking JavaScript syntax..."
-          for file in background.js content.js popup.js; do
+          for file in background.js content.js popup.js offscreen.js; do
             echo "  Checking $file..."
             node --check "$file"
           done
@@ -102,9 +98,16 @@ jobs:
             "content.css"
             "popup.html"
             "popup.js"
+            "offscreen.html"
+            "offscreen.js"
             "icons/icon16.png"
             "icons/icon48.png"
             "icons/icon128.png"
+            "_locales/en/messages.json"
+            "_locales/de/messages.json"
+            "vendor/tesseract/tesseract.min.js"
+            "vendor/tesseract/worker.min.js"
+            "PRIVACY.md"
           )
 
           for file in "${required_files[@]}"; do
@@ -125,15 +128,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Create extension package
         run: |
           mkdir -p dist
@@ -144,7 +138,11 @@ jobs:
             content.css \
             popup.html \
             popup.js \
+            offscreen.html \
+            offscreen.js \
             icons/ \
+            vendor/ \
+            _locales/ \
             -x "*.git*" \
             -x "*.DS_Store"
 

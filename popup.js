@@ -1,3 +1,25 @@
+// i18n helper: falls back to the given English text if the message is missing
+function t(key, substitutions, fallback) {
+  const message = chrome.i18n.getMessage(key, substitutions);
+  return message || fallback || key;
+}
+
+// Replace static texts with the active locale (elements carry data-i18n attributes)
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const message = chrome.i18n.getMessage(el.dataset.i18n);
+    if (message) el.textContent = message;
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const message = chrome.i18n.getMessage(el.dataset.i18nTitle);
+    if (message) el.title = message;
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const message = chrome.i18n.getMessage(el.dataset.i18nPlaceholder);
+    if (message) el.placeholder = message;
+  });
+}
+
 // Provider preset defaults (shared shape with background.js PROVIDER_DEFAULT_URLS)
 const PROVIDER_DEFAULT_URLS = {
   lmstudio: 'http://localhost:1234',
@@ -19,18 +41,18 @@ const DEFAULT_MODEL_PLACEHOLDER = 'Auto-detect';
 // model dropdown (verified against provider docs, August 2026)
 const PROVIDER_MODEL_RECOMMENDATIONS = {
   deepseek: [
-    { id: 'deepseek-v4-flash', note: 'Recommended: fast, inexpensive, ideal for translation' },
-    { id: 'deepseek-v4-pro', note: 'Highest quality, slower and pricier' }
+    { id: 'deepseek-v4-flash', noteKey: 'recDeepseekFlash', note: 'Recommended: fast, inexpensive, ideal for translation' },
+    { id: 'deepseek-v4-pro', noteKey: 'recDeepseekPro', note: 'Highest quality, slower and pricier' }
   ],
   openai: [
-    { id: 'gpt-5-mini', note: 'Recommended: good quality/cost balance' },
-    { id: 'gpt-5-nano', note: 'Fastest and cheapest' },
-    { id: 'gpt-5.4-mini', note: 'Newer mid-tier' }
+    { id: 'gpt-5-mini', noteKey: 'recGpt5Mini', note: 'Recommended: good quality/cost balance' },
+    { id: 'gpt-5-nano', noteKey: 'recGpt5Nano', note: 'Fastest and cheapest' },
+    { id: 'gpt-5.4-mini', noteKey: 'recGpt54Mini', note: 'Newer mid-tier' }
   ],
   ollama: [
-    { id: 'qwen3', note: 'Strong multilingual (if installed)' },
-    { id: 'llama3.3', note: 'General purpose (if installed)' },
-    { id: 'gemma3', note: 'Lightweight (if installed)' }
+    { id: 'qwen3', noteKey: 'recQwen3', note: 'Strong multilingual (if installed)' },
+    { id: 'llama3.3', noteKey: 'recLlama33', note: 'General purpose (if installed)' },
+    { id: 'gemma3', noteKey: 'recGemma3', note: 'Lightweight (if installed)' }
   ],
   lmstudio: [] // suggestions come from the local server via model refresh
 };
@@ -61,6 +83,8 @@ function clampNumber(value, min, max, fallback) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  applyI18n();
+
   // Element references
   const providerSelect = document.getElementById('provider');
   const apiUrlInput = document.getElementById('apiUrl');
@@ -194,8 +218,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     await chrome.storage.sync.set({ autoTranslateSites: [...sites] });
     showStatus(autoTranslateSiteCheckbox.checked
-      ? `Auto-translate enabled for ${currentHostname}`
-      : `Auto-translate disabled for ${currentHostname}`, 'success');
+      ? t('statusAutoTranslateOn', [currentHostname], `Auto-translate enabled for ${currentHostname}`)
+      : t('statusAutoTranslateOff', [currentHostname], `Auto-translate disabled for ${currentHostname}`), 'success');
   });
 
   if (tab && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://') && !tab.url.startsWith('about:')) {
@@ -209,7 +233,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('Content script not ready');
       });
   } else {
-    showStatus('Cannot translate this page', 'error');
+    showStatus(t('statusCannotTranslatePage', undefined, 'Cannot translate this page'), 'error');
     translateBtn.disabled = true;
     restoreBtn.disabled = true;
   }
@@ -251,7 +275,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       apiKeyGroup.classList.add('hidden');
     }
-    modelNameInput.placeholder = PROVIDER_MODEL_PLACEHOLDERS[provider] || DEFAULT_MODEL_PLACEHOLDER;
+    modelNameInput.placeholder = PROVIDER_MODEL_PLACEHOLDERS[provider] || t('placeholderAutoDetect', undefined, DEFAULT_MODEL_PLACEHOLDER);
     // Models from the previous provider are no longer valid
     availableModelIds = [];
     renderModelDropdown();
@@ -316,16 +340,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (visibleRecommendations.length > 0) {
       const header = document.createElement('div');
       header.className = 'combobox-section';
-      header.textContent = 'Recommended';
+      header.textContent = t('dropdownRecommended', undefined, 'Recommended');
       modelDropdown.appendChild(header);
-      visibleRecommendations.forEach(r => modelDropdown.appendChild(buildModelOption(r.id, r.note)));
+      visibleRecommendations.forEach(r => modelDropdown.appendChild(buildModelOption(r.id, t(r.noteKey, undefined, r.note))));
     }
 
     const visibleFetched = fetched.filter(matchesFilter);
     if (visibleFetched.length > 0) {
       const header = document.createElement('div');
       header.className = 'combobox-section';
-      header.textContent = 'Available models';
+      header.textContent = t('dropdownAvailable', undefined, 'Available models');
       modelDropdown.appendChild(header);
       visibleFetched.forEach(id => modelDropdown.appendChild(buildModelOption(id)));
     }
@@ -334,8 +358,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const empty = document.createElement('div');
       empty.className = 'combobox-empty';
       empty.textContent = typed
-        ? 'No matching models — free text is fine'
-        : 'No models detected yet — use Test Connection or type a model name';
+        ? t('dropdownNoMatch', undefined, 'No matching models — free text is fine')
+        : t('dropdownNoModels', undefined, 'No models detected yet — use Test Connection or type a model name');
       modelDropdown.appendChild(empty);
     }
   }
@@ -424,7 +448,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateUI(true, false);
       window.close();
     } catch (error) {
-      showStatus('Error: Please refresh the page', 'error');
+      showStatus(t('statusRefreshPage', undefined, 'Error: Please refresh the page'), 'error');
     }
   });
 
@@ -442,7 +466,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateUI(false, false);
       window.close();
     } catch (error) {
-      showStatus('Error: Please refresh the page', 'error');
+      showStatus(t('statusRefreshPage', undefined, 'Error: Please refresh the page'), 'error');
     }
   });
 
@@ -472,15 +496,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!modelNameInput.value) {
           modelNameInput.value = modelIds[0];
           await saveSettings();
-          showStatus(`Found ${modelIds.length} model(s). Selected: ${modelIds[0]}`, 'success');
+          showStatus(t('statusModelsFound', [String(modelIds.length), modelIds[0]], `Found ${modelIds.length} model(s). Selected: ${modelIds[0]}`), 'success');
         } else {
-          showStatus(`Found ${modelIds.length} model(s) — open the model field to pick one`, 'success');
+          showStatus(t('statusModelsFoundPick', [String(modelIds.length)], `Found ${modelIds.length} model(s) — open the model field to pick one`), 'success');
         }
       } else {
-        showStatus('No models found', 'error');
+        showStatus(t('statusNoModels', undefined, 'No models found'), 'error');
       }
     } catch (error) {
-      showStatus(`Failed: ${error.message}`, 'error');
+      showStatus(t('statusRefreshFailed', [error.message], `Failed: ${error.message}`), 'error');
     } finally {
       svg.style.animation = '';
     }
@@ -503,14 +527,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Validate URL format
   function validateUrl(url) {
     if (!url || url.trim() === '') {
-      return { valid: false, error: 'URL cannot be empty' };
+      return { valid: false, error: t('errUrlEmpty', undefined, 'URL cannot be empty') };
     }
 
     const trimmedUrl = url.trim();
 
     // Must start with http:// or https://
     if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
-      return { valid: false, error: 'URL must start with http:// or https://' };
+      return { valid: false, error: t('errUrlScheme', undefined, 'URL must start with http:// or https://') };
     }
 
     // Try to parse as URL
@@ -518,11 +542,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const parsed = new URL(trimmedUrl);
       // Basic sanity check - must have a hostname
       if (!parsed.hostname) {
-        return { valid: false, error: 'URL must have a valid hostname' };
+        return { valid: false, error: t('errUrlHost', undefined, 'URL must have a valid hostname') };
       }
       return { valid: true, url: trimmedUrl };
     } catch (e) {
-      return { valid: false, error: 'Invalid URL format' };
+      return { valid: false, error: t('errUrlInvalid', undefined, 'Invalid URL format') };
     }
   }
 
@@ -597,15 +621,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     connectionStatus.className = 'status-indicator';
     if (connected === true) {
       connectionStatus.classList.add('connected');
-      statusText.textContent = 'Online';
-      connectionStatus.title = 'Connected';
+      statusText.textContent = t('statusOnline', undefined, 'Online');
+      connectionStatus.title = t('statusOnline', undefined, 'Connected');
     } else if (connected === false) {
       connectionStatus.classList.add('error');
-      statusText.textContent = 'Offline';
-      connectionStatus.title = text || 'Connection failed';
+      statusText.textContent = t('statusOffline', undefined, 'Offline');
+      connectionStatus.title = text || t('statusOffline', undefined, 'Connection failed');
     } else {
-      statusText.textContent = 'Checking...';
-      connectionStatus.title = 'Testing connection...';
+      statusText.textContent = t('statusChecking', undefined, 'Checking...');
+      connectionStatus.title = t('statusTesting', undefined, 'Testing connection...');
     }
   }
 
@@ -613,7 +637,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const saved = await saveSettings();
     if (!saved) return; // URL validation failed
     updateConnectionIndicator(null);
-    showStatus('Testing connection...', '');
+    showStatus(t('statusTesting', undefined, 'Testing connection...'), '');
 
     try {
       const settingsObj = await getSettingsObject();
@@ -625,15 +649,90 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (response.success) {
         updateConnectionIndicator(true);
         setAvailableModels(response.models.map(m => m.id));
-        showStatus(`Connected! Found ${response.models.length} model(s)`, 'success');
+        showStatus(t('statusConnected', [String(response.models.length)], `Connected! Found ${response.models.length} model(s)`), 'success');
       } else {
         throw new Error(response.error || 'Connection failed');
       }
     } catch (error) {
       updateConnectionIndicator(false, error.message);
-      showStatus(`Connection failed: ${error.message}`, 'error');
+      showStatus(t('statusConnectionFailed', [error.message], `Connection failed: ${error.message}`), 'error');
     }
   }
+
+  // --- Cache export/import ------------------------------------------------
+  // chrome.storage.sync only holds ~100 KB, far too small for the translation
+  // cache — settings sync via the Google account, the cache does not. These
+  // buttons let users carry the cache to another browser manually.
+
+  const exportCacheBtn = document.getElementById('exportCache');
+  const importCacheBtn = document.getElementById('importCache');
+  const importCacheFileInput = document.getElementById('importCacheFile');
+  const CACHE_EXPORT_FORMAT = 'ai-translator-cache';
+  const CACHE_EXPORT_VERSION = 1;
+
+  // Newer timestamp wins on conflicting entries
+  function mergeCache(existing, imported) {
+    const merged = { ...existing };
+    for (const [key, entry] of Object.entries(imported || {})) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (!merged[key] || (entry.ts || 0) > (merged[key].ts || 0)) {
+        merged[key] = entry;
+      }
+    }
+    return merged;
+  }
+
+  exportCacheBtn.addEventListener('click', async () => {
+    const stored = await chrome.storage.local.get(['translationCache', 'imageTranslationCache']);
+    const translationCache = stored.translationCache || {};
+    const imageTranslationCache = stored.imageTranslationCache || {};
+    const entryCount = Object.keys(translationCache).length + Object.keys(imageTranslationCache).length;
+
+    const payload = {
+      format: CACHE_EXPORT_FORMAT,
+      version: CACHE_EXPORT_VERSION,
+      exportedAt: new Date().toISOString(),
+      translationCache,
+      imageTranslationCache
+    };
+
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ai-translator-cache-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    showStatus(t('statusCacheExported', [String(entryCount)], `Cache exported (${entryCount} entries)`), 'success');
+  });
+
+  importCacheBtn.addEventListener('click', () => importCacheFileInput.click());
+
+  importCacheFileInput.addEventListener('change', async () => {
+    const file = importCacheFileInput.files[0];
+    importCacheFileInput.value = '';
+    if (!file) return;
+
+    try {
+      const payload = JSON.parse(await file.text());
+      if (payload.format !== CACHE_EXPORT_FORMAT || typeof payload.translationCache !== 'object') {
+        throw new Error(t('errUrlInvalid', undefined, 'Invalid file format'));
+      }
+
+      const stored = await chrome.storage.local.get(['translationCache', 'imageTranslationCache']);
+      const mergedTranslations = mergeCache(stored.translationCache || {}, payload.translationCache);
+      const mergedImages = mergeCache(stored.imageTranslationCache || {}, payload.imageTranslationCache);
+      await chrome.storage.local.set({
+        translationCache: mergedTranslations,
+        imageTranslationCache: mergedImages
+      });
+
+      const entryCount = Object.keys(mergedTranslations).length + Object.keys(mergedImages).length;
+      showStatus(t('statusCacheImported', [String(entryCount)], `Cache imported (${entryCount} entries)`), 'success');
+    } catch (error) {
+      showStatus(t('statusCacheImportFailed', [error.message], `Cache import failed: ${error.message}`), 'error');
+    }
+  });
 
   // Test connection on load
   testConnection();
