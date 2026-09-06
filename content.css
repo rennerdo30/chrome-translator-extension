@@ -1,83 +1,136 @@
+/* ---------------------------------------------------------------------------
+   Styles injected into every page. All custom properties are prefixed with
+   --lm- so they cannot collide with the host page, and every widget below
+   reads its colours, sizes and timings from them.
+   --------------------------------------------------------------------------- */
+:root {
+  --lm-accent: #1d4ed8;
+  --lm-accent-hover: #1740b6;
+  --lm-accent-soft: rgba(29, 78, 216, 0.1);
+  --lm-surface: #ffffff;
+  --lm-surface-subtle: #f1f3f5;
+  --lm-text: #14171a;
+  --lm-text-muted: #5b6470;
+  --lm-tooltip-bg: #1c2027;
+  --lm-tooltip-text: #f5f7fa;
+  --lm-border: #dce0e6;
+
+  --lm-radius: 10px;
+  --lm-radius-sm: 6px;
+  --lm-space-xs: 4px;
+  --lm-space-sm: 6px;
+  --lm-space: 10px;
+  --lm-space-lg: 14px;
+  --lm-space-xl: 32px;
+  --lm-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --lm-text-sm: 12px;
+  --lm-text-md: 13px;
+  --lm-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  --lm-transition: 160ms ease;
+  --lm-panel-width: 280px;
+  --lm-tooltip-max-width: 320px;
+  --lm-image-overlay-max-width: 420px;
+  --lm-image-overlay-min-width: 160px;
+  --lm-image-overlay-max-height: 220px;
+  --lm-danger: #a01e1e;
+  /* Highest usable stacking order, so host pages cannot cover our UI. */
+  --lm-z-top: 2147483647;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lm-accent: #7fa6ff;
+    --lm-accent-hover: #9bbaff;
+    --lm-accent-soft: rgba(127, 166, 255, 0.16);
+    --lm-surface: #1c2027;
+    --lm-surface-subtle: #262b33;
+    --lm-text: #eef1f5;
+    --lm-text-muted: #aeb7c2;
+    --lm-tooltip-bg: #0c0f14;
+    --lm-tooltip-text: #eef1f5;
+    --lm-border: #333a44;
+    --lm-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    --lm-danger: #c2413f;
+  }
+}
+
+/* Translated text: a restrained underline instead of a highlight block, so
+   the page stays readable. */
 .lm-translated {
-  background-color: rgba(255, 255, 0, 0.1);
-  border-left: 2px solid #4285f4;
-  padding-left: 2px;
-  transition: background-color 0.3s ease;
+  background-color: transparent;
+  border-bottom: 1px dashed var(--lm-accent);
+  cursor: help;
+  transition: background-color var(--lm-transition);
 }
 
-.lm-translated:hover {
-  background-color: rgba(255, 255, 0, 0.2);
+.lm-translated:hover,
+.lm-translated:focus-visible {
+  background-color: var(--lm-accent-soft);
 }
 
-.lm-translation-overlay {
-  position: fixed;
-  top: 10px;
-  right: 10px;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 10px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 10000;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
-  max-width: 300px;
-}
-
-.lm-translation-overlay button {
-  background: #4285f4;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  margin: 0 4px;
-}
-
-.lm-translation-overlay button:hover {
-  background: #3367d6;
-}
-
+/* Tooltip showing the original text */
 .lm-hover-tooltip {
   position: fixed;
-  background: #202124;
-  color: white;
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 14px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  max-width: 350px;
-  word-wrap: break-word;
-  z-index: 2147483647;
-  /* Max z-index */
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  z-index: var(--lm-z-top);
+  max-width: var(--lm-tooltip-max-width);
+  padding: var(--lm-space-sm) var(--lm-space);
+  border-radius: var(--lm-radius-sm);
+  background: var(--lm-tooltip-bg);
+  color: var(--lm-tooltip-text);
+  font-family: var(--lm-font);
+  font-size: var(--lm-text-sm);
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  box-shadow: var(--lm-shadow);
   pointer-events: none;
-  line-height: 1.4;
+}
+
+/* Progress panel and toast share the same panel look. */
+.lm-progress-container,
+.lm-toast {
+  position: fixed !important;
+  right: var(--lm-space-lg) !important;
+  bottom: var(--lm-space-lg) !important;
+  z-index: var(--lm-z-top) !important;
+  box-sizing: border-box !important;
+  width: var(--lm-panel-width) !important;
+  padding: var(--lm-space-lg) !important;
+  border: 1px solid var(--lm-border) !important;
+  border-radius: var(--lm-radius) !important;
+  background: var(--lm-surface) !important;
+  color: var(--lm-text) !important;
+  font-family: var(--lm-font) !important;
+  font-size: var(--lm-text-md) !important;
+  line-height: 1.45 !important;
+  box-shadow: var(--lm-shadow) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  animation: lm-slide-in 240ms ease-out !important;
 }
 
 .lm-progress-container {
-  position: fixed !important;
-  bottom: 20px !important;
-  right: 20px !important;
-  background: white !important;
-  padding: 15px !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-  z-index: 2147483647 !important;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-  width: 300px !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 10px !important;
-  border: 1px solid #e0e0e0 !important;
-  animation: lm-slide-in 0.3s ease-out !important;
-  opacity: 1 !important;
-  visibility: visible !important;
+  gap: var(--lm-space) !important;
+}
+
+.lm-toast {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: var(--lm-space) !important;
+}
+
+.lm-toast-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--lm-accent);
 }
 
 @keyframes lm-slide-in {
   from {
-    transform: translateY(100%);
+    transform: translateY(12px);
     opacity: 0;
   }
 
@@ -89,76 +142,90 @@
 
 .lm-progress-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--lm-space);
+  font-size: var(--lm-text-md);
   font-weight: 600;
-  color: #333;
-  font-size: 14px;
+  color: var(--lm-text);
 }
 
 .lm-progress-bar-bg {
-  height: 6px;
-  background: #f1f3f4;
-  border-radius: 3px;
   overflow: hidden;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--lm-surface-subtle);
 }
 
 .lm-progress-bar-fill {
-  height: 100%;
-  background: #4285f4;
   width: 0%;
-  transition: width 0.3s ease;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--lm-accent);
+  transition: width 300ms ease;
 }
 
 .lm-progress-status {
-  font-size: 12px;
-  color: #5f6368;
+  font-size: var(--lm-text-sm);
+  color: var(--lm-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .lm-close-btn {
-  background: none;
-  border: none;
-  color: #5f6368;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--lm-radius-sm);
+  background: none;
+  color: var(--lm-text-muted);
+  cursor: pointer;
+  transition: background-color var(--lm-transition), color var(--lm-transition);
 }
 
 .lm-close-btn:hover {
-  color: #333;
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--lm-surface-subtle);
+  color: var(--lm-text);
 }
 
-/* Image translation overlay */
+.lm-close-btn:focus-visible {
+  outline: 2px solid var(--lm-accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Image translation overlay. Reuses the tooltip surface tokens so it tracks
+   the light/dark palette instead of hardcoding a dark background.
+   --------------------------------------------------------------------------- */
 .lm-image-overlay {
   position: absolute;
-  z-index: 2147483647;
-  background: rgba(32, 33, 36, 0.95);
-  color: #fff;
-  padding: 10px 32px 10px 12px;
-  border-radius: 8px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px;
+  z-index: var(--lm-z-top);
+  max-width: var(--lm-image-overlay-max-width);
+  min-width: var(--lm-image-overlay-min-width);
+  padding: var(--lm-space) var(--lm-space-xl) var(--lm-space) var(--lm-space);
+  border-radius: var(--lm-radius-sm);
+  background: var(--lm-tooltip-bg);
+  color: var(--lm-tooltip-text);
+  font-family: var(--lm-font);
+  font-size: var(--lm-text-md);
   line-height: 1.45;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  max-width: 420px;
-  min-width: 160px;
-  word-wrap: break-word;
+  box-shadow: var(--lm-shadow);
+  overflow-wrap: break-word;
   white-space: pre-wrap;
 }
 
 .lm-image-overlay-floating {
   position: fixed !important;
-  bottom: 20px;
-  right: 20px;
+  bottom: var(--lm-space-lg);
+  right: var(--lm-space-lg);
 }
 
 .lm-image-overlay-error {
-  background: rgba(160, 30, 30, 0.95);
+  background: var(--lm-danger);
 }
 
 .lm-image-overlay-loading {
@@ -168,22 +235,43 @@
 
 .lm-image-overlay-close {
   position: absolute;
-  top: 4px;
-  right: 6px;
-  background: none;
+  top: var(--lm-space-xs);
+  right: var(--lm-space-sm);
+  padding: 2px 4px;
   border: none;
-  color: rgba(255, 255, 255, 0.7);
+  background: none;
+  color: var(--lm-tooltip-text);
+  opacity: 0.7;
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
-  padding: 2px 4px;
+  transition: opacity var(--lm-transition);
 }
 
 .lm-image-overlay-close:hover {
-  color: #fff;
+  opacity: 1;
+}
+
+.lm-image-overlay-close:focus-visible {
+  outline: 2px solid var(--lm-accent);
+  outline-offset: 2px;
+  opacity: 1;
 }
 
 .lm-image-overlay-text {
-  max-height: 220px;
+  max-height: var(--lm-image-overlay-max-height);
   overflow-y: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lm-translated,
+  .lm-hover-tooltip,
+  .lm-progress-container,
+  .lm-toast,
+  .lm-progress-bar-fill,
+  .lm-close-btn,
+  .lm-image-overlay-close {
+    animation: none !important;
+    transition: none !important;
+  }
 }

@@ -1,3 +1,14 @@
+/* Popup UI for the AI Translator extension. */
+
+// --- Constants -------------------------------------------------------------
+
+const PROVIDER = {
+  LM_STUDIO: 'lmstudio',
+  OLLAMA: 'ollama',
+  OPENAI: 'openai',
+  DEEPSEEK: 'deepseek'
+};
+
 // i18n helper: falls back to the given English text if the message is missing
 function t(key, substitutions, fallback) {
   const message = chrome.i18n.getMessage(key, substitutions);
@@ -20,51 +31,61 @@ function applyI18n() {
   });
 }
 
+
 // Provider preset defaults (shared shape with background.js PROVIDER_DEFAULT_URLS)
-const PROVIDER_DEFAULT_URLS = {
-  lmstudio: 'http://localhost:1234',
-  ollama: 'http://localhost:11434',
-  openai: 'https://api.openai.com',
-  deepseek: 'https://api.deepseek.com'
+const DEFAULT_URLS = {
+  [PROVIDER.LM_STUDIO]: 'http://localhost:1234',
+  [PROVIDER.OLLAMA]: 'http://localhost:11434',
+  [PROVIDER.OPENAI]: 'https://api.openai.com',
+  [PROVIDER.DEEPSEEK]: 'https://api.deepseek.com'
+};
+
+// storage key that holds the endpoint of each provider
+const URL_STORAGE_KEY = {
+  [PROVIDER.LM_STUDIO]: 'lmStudioUrl',
+  [PROVIDER.OLLAMA]: 'ollamaUrl',
+  [PROVIDER.OPENAI]: 'openaiUrl',
+  [PROVIDER.DEEPSEEK]: 'deepseekUrl'
 };
 
 // Providers that authenticate with a Bearer API key
-const API_KEY_PROVIDERS = ['openai', 'deepseek'];
+const API_KEY_PROVIDERS = [PROVIDER.OPENAI, PROVIDER.DEEPSEEK];
 
 // Per-provider hint for the model input when none is configured
 const PROVIDER_MODEL_PLACEHOLDERS = {
-  deepseek: 'deepseek-v4-flash'
+  [PROVIDER.DEEPSEEK]: 'deepseek-v4-flash'
 };
 const DEFAULT_MODEL_PLACEHOLDER = 'Auto-detect';
 
 // Recommended models per provider, shown as suggestions in the editable
 // model dropdown (verified against provider docs, August 2026)
 const PROVIDER_MODEL_RECOMMENDATIONS = {
-  deepseek: [
+  [PROVIDER.DEEPSEEK]: [
     { id: 'deepseek-v4-flash', noteKey: 'recDeepseekFlash', note: 'Recommended: fast, inexpensive, ideal for translation' },
     { id: 'deepseek-v4-pro', noteKey: 'recDeepseekPro', note: 'Highest quality, slower and pricier' }
   ],
-  openai: [
+  [PROVIDER.OPENAI]: [
     { id: 'gpt-5-mini', noteKey: 'recGpt5Mini', note: 'Recommended: good quality/cost balance' },
     { id: 'gpt-5-nano', noteKey: 'recGpt5Nano', note: 'Fastest and cheapest' },
     { id: 'gpt-5.4-mini', noteKey: 'recGpt54Mini', note: 'Newer mid-tier' }
   ],
-  ollama: [
+  [PROVIDER.OLLAMA]: [
     { id: 'qwen3', noteKey: 'recQwen3', note: 'Strong multilingual (if installed)' },
     { id: 'llama3.3', noteKey: 'recLlama33', note: 'General purpose (if installed)' },
     { id: 'gemma3', noteKey: 'recGemma3', note: 'Lightweight (if installed)' }
+
   ],
-  lmstudio: [] // suggestions come from the local server via model refresh
+  [PROVIDER.LM_STUDIO]: [] // suggestions come from the local server via model refresh
 };
 
 // Per-provider execution defaults (kept in sync with content.js).
 // Local servers process one request at a time, so parallel requests only
 // queue up; cloud APIs handle concurrency and larger batches well.
 const PROVIDER_EXECUTION_DEFAULTS = {
-  lmstudio: { parallelRequests: 1, batchSize: 10 },
-  ollama: { parallelRequests: 1, batchSize: 10 },
-  openai: { parallelRequests: 4, batchSize: 20 },
-  deepseek: { parallelRequests: 4, batchSize: 20 }
+  [PROVIDER.LM_STUDIO]: { parallelRequests: 1, batchSize: 10 },
+  [PROVIDER.OLLAMA]: { parallelRequests: 1, batchSize: 10 },
+  [PROVIDER.OPENAI]: { parallelRequests: 4, batchSize: 20 },
+  [PROVIDER.DEEPSEEK]: { parallelRequests: 4, batchSize: 20 }
 };
 const FALLBACK_EXECUTION_DEFAULTS = { parallelRequests: 1, batchSize: 10 };
 const MIN_PARALLEL_REQUESTS = 1;
@@ -82,10 +103,127 @@ function clampNumber(value, min, max, fallback) {
   return Math.min(max, Math.max(min, parsed));
 }
 
+const SETTINGS_KEYS = [
+  'provider',
+  'lmStudioUrl',
+  'ollamaUrl',
+  'openaiUrl',
+  'deepseekUrl',
+  'apiKey',
+  'targetLanguage',
+  'model',
+  'executionSettings'
+];
+
+const DEFAULT_PROVIDER = PROVIDER.LM_STUDIO;
+const DEFAULT_TARGET_LANGUAGE = 'English';
+
+const UNSUPPORTED_URL_PREFIXES = [
+  'chrome://',
+  'chrome-extension://',
+  'edge://',
+  'about:',
+  'moz-extension://',
+  'view-source:',
+  'https://chrome.google.com/webstore',
+  'https://chromewebstore.google.com'
+];
+
+const ACTION = {
+  TOGGLE_TRANSLATION: 'toggleTranslation',
+  RESTORE_TRANSLATION: 'restoreTranslation',
+  GET_TRANSLATION_STATUS: 'getTranslationStatus',
+  GET_MODELS: 'getModels'
+};
+
+const STATUS_VARIANT = {
+  NEUTRAL: '',
+  SUCCESS: 'success',
+  ERROR: 'error'
+};
+
+// Single source of truth for user-facing copy, so no message is assembled
+// from sentence fragments.
+const MESSAGES = {
+  urlEmpty: 'Enter the API endpoint of your provider.',
+  urlScheme: 'The endpoint must start with http:// or https://.',
+  urlHost: 'The endpoint needs a valid host name.',
+  urlInvalid: 'That endpoint is not a valid URL.',
+  unsupportedPage: 'This browser page cannot be translated. Open a normal website and try again.',
+  pageNotReady: 'Reload the page, then try translating again.',
+  testing: 'Testing connection…',
+  connected: (count) =>
+    isPlural(count)
+      ? `Connected. ${formatCount(count)} models available.`
+      : 'Connected. 1 model available.',
+  connectionFailed: (reason) => `Connection failed: ${reason}`,
+  modelsFoundSelected: (count, model) =>
+    isPlural(count)
+      ? `Found ${formatCount(count)} models. Model set to ${model}.`
+      : `Found 1 model. Model set to ${model}.`,
+  modelsFoundPick: (count) =>
+    isPlural(count)
+      ? `Found ${formatCount(count)} models. Open the model field to pick one.`
+      : 'Found 1 model. Open the model field to pick one.',
+  noModels: 'No models found. Load a model in your provider first.',
+  modelLookupFailed: (reason) => `Could not list models: ${reason}`,
+  unknownError: 'Unknown error'
+};
+
+const CONNECTION_LABEL = {
+  online: 'Online',
+  offline: 'Offline',
+  checking: 'Checking…'
+};
+
+const CONNECTION_TITLE = {
+  online: 'Connected to the translation provider',
+  offline: 'Not connected',
+  checking: 'Testing the connection…'
+};
+
+const EYE_ICON_OPEN =
+  '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+const EYE_ICON_CLOSED =
+  '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+
+const API_KEY_TOGGLE_LABEL = {
+  show: 'Show API key',
+  hide: 'Hide API key'
+};
+
+const CSS_CLASS = {
+  hidden: 'hidden',
+  spinning: 'is-spinning',
+  connected: 'connected',
+  checking: 'checking',
+  error: 'error',
+  statusMessage: 'status-message',
+  statusIndicator: 'status-indicator'
+};
+
+/** Locale-aware number formatting for counts shown in the UI. */
+function formatCount(value) {
+  return new Intl.NumberFormat(navigator.language).format(value);
+}
+
+/** True when a count needs the plural wording of a message. */
+function isPlural(count) {
+  return new Intl.PluralRules('en').select(count) !== 'one';
+}
+
+function isUnsupportedUrl(url) {
+  if (!url) return true;
+  return UNSUPPORTED_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
+}
+
+// --- UI --------------------------------------------------------------------
+
 document.addEventListener('DOMContentLoaded', async () => {
   applyI18n();
 
   // Element references
+
   const providerSelect = document.getElementById('provider');
   const apiUrlInput = document.getElementById('apiUrl');
   const apiKeyInput = document.getElementById('apiKey');
@@ -110,9 +248,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const translateBtn = document.getElementById('translateBtn');
   const restoreBtn = document.getElementById('restoreBtn');
   const testConnectionBtn = document.getElementById('testConnection');
-  const statusDiv = document.getElementById('status');
+  const statusMessage = document.getElementById('status');
   const connectionStatus = document.getElementById('connectionStatus');
   const statusText = document.getElementById('statusText');
+  const pageNotice = document.getElementById('pageNotice');
+  const pageNoticeText = document.getElementById('pageNoticeText');
 
   let isTranslating = false;
   // Model ids reported by the current provider's /models endpoint
@@ -121,36 +261,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // the toggle always shows the full list, regardless of the current value
   let modelFilterActive = false;
 
-  // Load saved settings
-  const settings = await chrome.storage.sync.get([
-    'provider',
-    'lmStudioUrl',
-    'ollamaUrl',
-    'openaiUrl',
-    'deepseekUrl',
-    'apiKey',
-    'targetLanguage',
-    'model',
-    'executionSettings'
-  ]);
+  const settings = await chrome.storage.sync.get(SETTINGS_KEYS);
 
-  providerSelect.value = settings.provider || 'lmstudio';
+  providerSelect.value = settings.provider || DEFAULT_PROVIDER;
   updateProviderUI();
-
-  // Set initial URL based on provider
-  if (providerSelect.value === 'lmstudio') {
-    apiUrlInput.value = settings.lmStudioUrl || PROVIDER_DEFAULT_URLS.lmstudio;
-  } else if (providerSelect.value === 'ollama') {
-    apiUrlInput.value = settings.ollamaUrl || PROVIDER_DEFAULT_URLS.ollama;
-  } else if (providerSelect.value === 'openai') {
-    apiUrlInput.value = settings.openaiUrl || PROVIDER_DEFAULT_URLS.openai;
-  } else if (providerSelect.value === 'deepseek') {
-    apiUrlInput.value = settings.deepseekUrl || PROVIDER_DEFAULT_URLS.deepseek;
-  }
-
+  apiUrlInput.value =
+    settings[URL_STORAGE_KEY[providerSelect.value]] || DEFAULT_URLS[providerSelect.value] || '';
   apiKeyInput.value = settings.apiKey || '';
   modelNameInput.value = settings.model || '';
-  targetLanguageSelect.value = settings.targetLanguage || 'English';
+  targetLanguageSelect.value = settings.targetLanguage || DEFAULT_TARGET_LANGUAGE;
   applyExecutionInputs(providerSelect.value, settings.executionSettings);
 
   // Image translation settings
@@ -187,7 +306,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   visionModelInput.addEventListener('change', saveVisionSettings);
   visionApiKeyInput.addEventListener('change', saveVisionSettings);
 
-  // Check current translation status
+  // Reflect what the content script is currently doing on the active tab.
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   // Auto-translate checkbox reflects whether the current site is enabled
@@ -222,26 +341,28 @@ document.addEventListener('DOMContentLoaded', async () => {
       : t('statusAutoTranslateOff', [currentHostname], `Auto-translate disabled for ${currentHostname}`), 'success');
   });
 
-  if (tab && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://') && !tab.url.startsWith('about:')) {
-    sendMessageToContentScript(tab.id, { action: 'getTranslationStatus' })
-      .then(response => {
+  if (tab && tab.id && !isUnsupportedUrl(tab.url)) {
+    sendMessageToContentScript(tab.id, { action: ACTION.GET_TRANSLATION_STATUS })
+      .then((response) => {
         if (response) {
           updateUI(response.isTranslating, response.hasTranslations);
         }
       })
-      .catch(() => {
-        console.log('Content script not ready');
+      .catch((error) => {
+        console.debug('Content script not reachable yet:', error && error.message);
       });
   } else {
-    showStatus(t('statusCannotTranslatePage', undefined, 'Cannot translate this page'), 'error');
+    showPageNotice(t('statusCannotTranslatePage', undefined, MESSAGES.unsupportedPage));
+
     translateBtn.disabled = true;
     restoreBtn.disabled = true;
   }
 
-  // Event listeners for settings changes
+  // --- Settings persistence ------------------------------------------------
+
   providerSelect.addEventListener('change', async () => {
     updateProviderUI();
-    await updateUrlInputDefault();
+    await applyProviderUrlDefault();
     await updateExecutionInputDefaults();
     await saveSettings();
     // Refresh connection state and the model list for the new provider
@@ -259,26 +380,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   parallelRequestsInput.addEventListener('change', saveSettings);
   batchSizeInput.addEventListener('change', saveSettings);
 
-  // Toggle API key visibility
   toggleApiKeyBtn.addEventListener('click', () => {
-    const isPassword = apiKeyInput.type === 'password';
-    apiKeyInput.type = isPassword ? 'text' : 'password';
-    eyeIcon.innerHTML = isPassword
-      ? `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>`
-      : `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+    const reveal = apiKeyInput.type === 'password';
+    apiKeyInput.type = reveal ? 'text' : 'password';
+    toggleApiKeyBtn.setAttribute('aria-pressed', String(reveal));
+    const label = reveal ? API_KEY_TOGGLE_LABEL.hide : API_KEY_TOGGLE_LABEL.show;
+    toggleApiKeyBtn.setAttribute('aria-label', label);
+    toggleApiKeyBtn.title = label;
+    eyeIcon.innerHTML = reveal ? EYE_ICON_CLOSED : EYE_ICON_OPEN;
   });
 
   function updateProviderUI() {
     const provider = providerSelect.value;
-    if (API_KEY_PROVIDERS.includes(provider)) {
-      apiKeyGroup.classList.remove('hidden');
-    } else {
-      apiKeyGroup.classList.add('hidden');
-    }
+    apiKeyGroup.classList.toggle(CSS_CLASS.hidden, !API_KEY_PROVIDERS.includes(provider));
     modelNameInput.placeholder = PROVIDER_MODEL_PLACEHOLDERS[provider] || t('placeholderAutoDetect', undefined, DEFAULT_MODEL_PLACEHOLDER);
+
     // Models from the previous provider are no longer valid
     availableModelIds = [];
     renderModelDropdown();
+  }
+
+  async function applyProviderUrlDefault() {
+    const provider = providerSelect.value;
+    // Keep any custom endpoint the user saved for this provider.
+    const saved = await chrome.storage.sync.get(Object.values(URL_STORAGE_KEY));
+    apiUrlInput.value = saved[URL_STORAGE_KEY[provider]] || DEFAULT_URLS[provider] || '';
   }
 
   // --- Editable model combobox -------------------------------------------
@@ -317,8 +443,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // recommendation set for the API the URL actually targets
   function getRecommendationProvider() {
     const url = (apiUrlInput.value || '').toLowerCase();
-    if (url.includes('deepseek')) return 'deepseek';
-    if (url.includes('openai')) return 'openai';
+    if (url.includes(PROVIDER.DEEPSEEK)) return PROVIDER.DEEPSEEK;
+    if (url.includes(PROVIDER.OPENAI)) return PROVIDER.OPENAI;
     return providerSelect.value;
   }
 
@@ -367,16 +493,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   function openModelDropdown(withFilter = false) {
     modelFilterActive = withFilter;
     renderModelDropdown();
-    modelDropdown.classList.remove('hidden');
+    modelDropdown.classList.remove(CSS_CLASS.hidden);
   }
 
   function closeModelDropdown() {
     modelFilterActive = false;
-    modelDropdown.classList.add('hidden');
+    modelDropdown.classList.add(CSS_CLASS.hidden);
   }
 
   modelDropdownToggle.addEventListener('click', () => {
-    if (modelDropdown.classList.contains('hidden')) {
+    if (modelDropdown.classList.contains(CSS_CLASS.hidden)) {
       openModelDropdown(false);
     } else {
       closeModelDropdown();
@@ -397,25 +523,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  async function updateUrlInputDefault() {
-    const provider = providerSelect.value;
-
-    // Load saved URLs to preserve custom URLs when switching providers
-    const saved = await chrome.storage.sync.get(['lmStudioUrl', 'ollamaUrl', 'openaiUrl', 'deepseekUrl']);
-
-    if (provider === 'lmstudio') {
-      apiUrlInput.value = saved.lmStudioUrl || PROVIDER_DEFAULT_URLS.lmstudio;
-    } else if (provider === 'ollama') {
-      apiUrlInput.value = saved.ollamaUrl || PROVIDER_DEFAULT_URLS.ollama;
-    } else if (provider === 'openai') {
-      apiUrlInput.value = saved.openaiUrl || PROVIDER_DEFAULT_URLS.openai;
-    } else if (provider === 'deepseek') {
-      apiUrlInput.value = saved.deepseekUrl || PROVIDER_DEFAULT_URLS.deepseek;
-    } else {
-      apiUrlInput.value = PROVIDER_DEFAULT_URLS[provider] || '';
-    }
-  }
-
   // Fill the parallel/batch inputs with the provider's saved override or its defaults
   function applyExecutionInputs(provider, executionSettings) {
     const defaults = getExecutionDefaults(provider);
@@ -432,65 +539,58 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyExecutionInputs(providerSelect.value, saved.executionSettings);
   }
 
-  // Translate button
-  translateBtn.addEventListener('click', async () => {
-    const saved = await saveSettings();
-    if (!saved) return; // URL validation failed
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  // --- Actions -------------------------------------------------------------
 
-    if (!tab || !tab.id) return;
+  translateBtn.addEventListener('click', async () => {
+    if (!(await saveSettings())) return;
+
+    const activeTab = await getActiveTab();
+    if (!activeTab) return;
 
     try {
-      await sendMessageToContentScript(tab.id, {
-        action: 'toggleTranslation',
+      await sendMessageToContentScript(activeTab.id, {
+        action: ACTION.TOGGLE_TRANSLATION,
         targetLanguage: targetLanguageSelect.value
       });
       updateUI(true, false);
       window.close();
     } catch (error) {
-      showStatus(t('statusRefreshPage', undefined, 'Error: Please refresh the page'), 'error');
+      showStatus(t('statusRefreshPage', undefined, MESSAGES.pageNotReady), STATUS_VARIANT.ERROR);
+
     }
   });
 
-  // Restore button
   restoreBtn.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (!tab || !tab.id) return;
+    const activeTab = await getActiveTab();
+    if (!activeTab) return;
 
     try {
-      await sendMessageToContentScript(tab.id, {
-        action: 'toggleTranslation',
-        targetLanguage: targetLanguageSelect.value
+      await sendMessageToContentScript(activeTab.id, {
+        action: ACTION.RESTORE_TRANSLATION
       });
       updateUI(false, false);
       window.close();
     } catch (error) {
-      showStatus(t('statusRefreshPage', undefined, 'Error: Please refresh the page'), 'error');
+      showStatus(t('statusRefreshPage', undefined, MESSAGES.pageNotReady), STATUS_VARIANT.ERROR);
+
     }
   });
 
-  // Test connection button
   testConnectionBtn.addEventListener('click', testConnection);
 
-  // Refresh models button
   refreshModelsBtn.addEventListener('click', async () => {
-    const saved = await saveSettings();
-    if (!saved) return; // URL validation failed
+    if (!(await saveSettings())) return;
 
-    // Add spinning animation
-    const svg = refreshModelsBtn.querySelector('svg');
-    svg.style.animation = 'spin 0.6s linear infinite';
+    setBusy(refreshModelsBtn, true);
 
     try {
-      const settingsObj = await getSettingsObject();
       const response = await chrome.runtime.sendMessage({
-        action: 'getModels',
-        settings: settingsObj
+        action: ACTION.GET_MODELS,
+        settings: await getSettingsObject()
       });
 
-      if (response.success && response.models.length > 0) {
-        const modelIds = response.models.map(m => m.id);
+      if (response && response.success && response.models && response.models.length > 0) {
+        const modelIds = response.models.map((model) => model.id);
         setAvailableModels(modelIds);
         // Only auto-select when the user has not chosen a model yet
         if (!modelNameInput.value) {
@@ -504,81 +604,73 @@ document.addEventListener('DOMContentLoaded', async () => {
         showStatus(t('statusNoModels', undefined, 'No models found'), 'error');
       }
     } catch (error) {
-      showStatus(t('statusRefreshFailed', [error.message], `Failed: ${error.message}`), 'error');
+      showStatus(t('statusRefreshFailed', [errorText(error)], `Failed: ${errorText(error)}`), 'error');
+
     } finally {
-      svg.style.animation = '';
+      setBusy(refreshModelsBtn, false);
     }
   });
 
+  async function getActiveTab() {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return activeTab && activeTab.id ? activeTab : null;
+  }
+
   async function getSettingsObject() {
-    const stored = await chrome.storage.sync.get(['lmStudioUrl', 'ollamaUrl', 'openaiUrl', 'deepseekUrl']);
+    const stored = await chrome.storage.sync.get(Object.values(URL_STORAGE_KEY));
+    const provider = providerSelect.value;
+    const urls = {};
+    Object.entries(URL_STORAGE_KEY).forEach(([providerId, key]) => {
+      urls[key] = providerId === provider ? apiUrlInput.value : stored[key];
+    });
+
     return {
-      provider: providerSelect.value,
-      lmStudioUrl: providerSelect.value === 'lmstudio' ? apiUrlInput.value : stored.lmStudioUrl,
-      ollamaUrl: providerSelect.value === 'ollama' ? apiUrlInput.value : stored.ollamaUrl,
-      openaiUrl: providerSelect.value === 'openai' ? apiUrlInput.value : stored.openaiUrl,
-      deepseekUrl: providerSelect.value === 'deepseek' ? apiUrlInput.value : stored.deepseekUrl,
+      provider,
+      ...urls,
       apiKey: apiKeyInput.value,
       model: modelNameInput.value,
       targetLanguage: targetLanguageSelect.value
     };
   }
 
-  // Validate URL format
   function validateUrl(url) {
-    if (!url || url.trim() === '') {
-      return { valid: false, error: t('errUrlEmpty', undefined, 'URL cannot be empty') };
+    const trimmedUrl = (url || '').trim();
+
+    if (trimmedUrl === '') {
+      return { valid: false, error: t('errUrlEmpty', undefined, MESSAGES.urlEmpty) };
+
     }
 
-    const trimmedUrl = url.trim();
-
-    // Must start with http:// or https://
     if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
-      return { valid: false, error: t('errUrlScheme', undefined, 'URL must start with http:// or https://') };
+      return { valid: false, error: t('errUrlScheme', undefined, MESSAGES.urlScheme) };
+
     }
 
-    // Try to parse as URL
     try {
       const parsed = new URL(trimmedUrl);
-      // Basic sanity check - must have a hostname
       if (!parsed.hostname) {
         return { valid: false, error: t('errUrlHost', undefined, 'URL must have a valid hostname') };
       }
       return { valid: true, url: trimmedUrl };
     } catch (e) {
       return { valid: false, error: t('errUrlInvalid', undefined, 'Invalid URL format') };
+
     }
   }
 
   async function saveSettings() {
-    // Validate URL before saving
     const urlValidation = validateUrl(apiUrlInput.value);
     if (!urlValidation.valid) {
-      showStatus(urlValidation.error, 'error');
+      showStatus(urlValidation.error, STATUS_VARIANT.ERROR);
+      apiUrlInput.setAttribute('aria-invalid', 'true');
+      apiUrlInput.focus();
       return false;
     }
+    apiUrlInput.removeAttribute('aria-invalid');
 
-    const settings = {
-      provider: providerSelect.value,
-      apiKey: apiKeyInput.value,
-      model: modelNameInput.value,
-      targetLanguage: targetLanguageSelect.value
-    };
-
-    // Save URL for the specific provider (use validated URL)
-    const cleanUrl = urlValidation.url;
-    if (providerSelect.value === 'lmstudio') {
-      settings.lmStudioUrl = cleanUrl;
-    } else if (providerSelect.value === 'ollama') {
-      settings.ollamaUrl = cleanUrl;
-    } else if (providerSelect.value === 'openai') {
-      settings.openaiUrl = cleanUrl;
-    } else if (providerSelect.value === 'deepseek') {
-      settings.deepseekUrl = cleanUrl;
-    }
-
-    // Save execution settings per provider (merge to keep other providers' overrides)
     const provider = providerSelect.value;
+
+    // Execution overrides are stored per provider, so merge instead of replace.
     const defaults = getExecutionDefaults(provider);
     const parallelRequests = clampNumber(parallelRequestsInput.value, MIN_PARALLEL_REQUESTS, MAX_PARALLEL_REQUESTS, defaults.parallelRequests);
     const batchSize = clampNumber(batchSizeInput.value, MIN_BATCH_SIZE, MAX_BATCH_SIZE, defaults.batchSize);
@@ -587,75 +679,110 @@ document.addEventListener('DOMContentLoaded', async () => {
     batchSizeInput.value = batchSize;
 
     const stored = await chrome.storage.sync.get(['executionSettings']);
-    settings.executionSettings = {
-      ...(stored.executionSettings || {}),
-      [provider]: { parallelRequests, batchSize }
-    };
 
-    await chrome.storage.sync.set(settings);
+    await chrome.storage.sync.set({
+      provider,
+      apiKey: apiKeyInput.value,
+      model: modelNameInput.value,
+      targetLanguage: targetLanguageSelect.value,
+      [URL_STORAGE_KEY[provider]]: urlValidation.url,
+      executionSettings: {
+        ...(stored.executionSettings || {}),
+        [provider]: { parallelRequests, batchSize }
+      }
+    });
     return true;
   }
 
   function updateUI(translating, hasTranslations) {
-    isTranslating = translating;
+    // "Restore original" must also be reachable once a translation has
+    // finished, not only while it is still running.
+    const showRestore = Boolean(translating || hasTranslations);
+    restoreBtn.classList.toggle(CSS_CLASS.hidden, !showRestore);
+    translateBtn.classList.toggle(CSS_CLASS.hidden, showRestore);
+  }
 
-    // Offer "Restore" while translating AND after a completed run
-    if (translating || hasTranslations) {
-      translateBtn.classList.add('hidden');
-      restoreBtn.classList.remove('hidden');
+  function showPageNotice(message) {
+    pageNoticeText.textContent = message;
+    pageNotice.classList.remove(CSS_CLASS.hidden);
+  }
+
+  function showStatus(message, variant = STATUS_VARIANT.NEUTRAL, busy = false) {
+    statusMessage.className = CSS_CLASS.statusMessage;
+    if (variant) statusMessage.classList.add(variant);
+    statusMessage.textContent = '';
+
+    if (busy) {
+      const spinner = document.createElement('span');
+      spinner.className = 'spinner';
+      statusMessage.appendChild(spinner);
+    }
+
+    const text = document.createElement('span');
+    text.textContent = message;
+    statusMessage.appendChild(text);
+  }
+
+  function setBusy(button, busy) {
+    button.disabled = busy;
+    button.classList.toggle(CSS_CLASS.spinning, busy);
+    if (busy) {
+      button.setAttribute('aria-busy', 'true');
     } else {
-      translateBtn.classList.remove('hidden');
-      restoreBtn.classList.add('hidden');
+      button.removeAttribute('aria-busy');
     }
   }
 
-  function showStatus(message, type = '') {
-    statusDiv.textContent = message;
-    statusDiv.className = 'status-message';
-    if (type) {
-      statusDiv.classList.add(type);
+  function updateConnectionIndicator(state) {
+    connectionStatus.className = CSS_CLASS.statusIndicator;
+
+    if (state === true) {
+      connectionStatus.classList.add(CSS_CLASS.connected);
+      statusText.textContent = CONNECTION_LABEL.online;
+      connectionStatus.title = CONNECTION_TITLE.online;
+    } else if (state === false) {
+      connectionStatus.classList.add(CSS_CLASS.error);
+      statusText.textContent = CONNECTION_LABEL.offline;
+      connectionStatus.title = CONNECTION_TITLE.offline;
+    } else {
+      connectionStatus.classList.add(CSS_CLASS.checking);
+      statusText.textContent = CONNECTION_LABEL.checking;
+      connectionStatus.title = CONNECTION_TITLE.checking;
     }
   }
 
-  function updateConnectionIndicator(connected, text) {
-    connectionStatus.className = 'status-indicator';
-    if (connected === true) {
-      connectionStatus.classList.add('connected');
-      statusText.textContent = t('statusOnline', undefined, 'Online');
-      connectionStatus.title = t('statusOnline', undefined, 'Connected');
-    } else if (connected === false) {
-      connectionStatus.classList.add('error');
-      statusText.textContent = t('statusOffline', undefined, 'Offline');
-      connectionStatus.title = text || t('statusOffline', undefined, 'Connection failed');
-    } else {
-      statusText.textContent = t('statusChecking', undefined, 'Checking...');
-      connectionStatus.title = t('statusTesting', undefined, 'Testing connection...');
-    }
+  function errorText(error) {
+    return (error && error.message) || MESSAGES.unknownError;
+
   }
 
   async function testConnection() {
-    const saved = await saveSettings();
-    if (!saved) return; // URL validation failed
+    if (!(await saveSettings())) return;
+
     updateConnectionIndicator(null);
-    showStatus(t('statusTesting', undefined, 'Testing connection...'), '');
+    setBusy(testConnectionBtn, true);
+    showStatus(MESSAGES.testing, STATUS_VARIANT.NEUTRAL, true);
+
 
     try {
-      const settingsObj = await getSettingsObject();
       const response = await chrome.runtime.sendMessage({
-        action: 'getModels',
-        settings: settingsObj
+        action: ACTION.GET_MODELS,
+        settings: await getSettingsObject()
       });
 
-      if (response.success) {
-        updateConnectionIndicator(true);
-        setAvailableModels(response.models.map(m => m.id));
-        showStatus(t('statusConnected', [String(response.models.length)], `Connected! Found ${response.models.length} model(s)`), 'success');
-      } else {
-        throw new Error(response.error || 'Connection failed');
+      if (!response || !response.success) {
+        throw new Error((response && response.error) || MESSAGES.unknownError);
+
       }
+
+      updateConnectionIndicator(true);
+      setAvailableModels(response.models.map((model) => model.id));
+      showStatus(MESSAGES.connected(response.models.length), STATUS_VARIANT.SUCCESS);
     } catch (error) {
-      updateConnectionIndicator(false, error.message);
-      showStatus(t('statusConnectionFailed', [error.message], `Connection failed: ${error.message}`), 'error');
+      updateConnectionIndicator(false);
+      showStatus(MESSAGES.connectionFailed(errorText(error)), STATUS_VARIANT.ERROR);
+    } finally {
+      setBusy(testConnectionBtn, false);
     }
   }
 
@@ -734,18 +861,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Test connection on load
-  testConnection();
 
   function sendMessageToContentScript(tabId, message) {
     return new Promise((resolve, reject) => {
       chrome.tabs.sendMessage(tabId, message, (response) => {
         if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
+          reject(new Error(chrome.runtime.lastError.message));
         } else {
           resolve(response);
         }
       });
     });
   }
+
+  // Probe the provider as soon as the popup opens so the header badge is
+  // meaningful without any user interaction.
+  testConnection();
 });

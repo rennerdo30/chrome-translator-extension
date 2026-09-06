@@ -60,9 +60,40 @@ async function maybeAutoTranslate() {
 
 maybeAutoTranslate();
 
+// Timings and sizes for the in-page UI, kept in one place.
+// (The progress panel's auto-dismiss delay is COMPLETION_NOTICE_DURATION_MS.)
+const TOAST_DISMISS_DELAY_MS = 4000;
+const TOOLTIP_OFFSET_PX = 6;
+const TOOLTIP_VIEWPORT_MARGIN_PX = 8;
+
+const IN_PAGE_TEXT = {
+  noTranslatableText: 'No translatable text found on this page.',
+  translating: 'Translating page…',
+  done: 'Done',
+  complete: 'Translation complete.',
+  stopTranslation: 'Stop translation',
+  translatingNewContent: 'Translating new content…',
+  batchProgress: (completed, total) =>
+    `${formatNumber(completed)} / ${formatNumber(total)} batches`,
+  batchProgressWithCache: (completed, total, restored) =>
+    `${formatNumber(completed)} / ${formatNumber(total)} batches · ${formatNumber(restored)} from cache`,
+  completeWithCache: (restored, translated) =>
+    `Done — ${formatNumber(restored)} from cache, ${formatNumber(translated)} newly translated`
+};
+
+function formatNumber(value) {
+  return new Intl.NumberFormat(navigator.language).format(value);
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'toggleTranslation') {
     toggleTranslation(request.targetLanguage);
+    sendResponse({ success: true, isTranslating });
+  } else if (request.action === 'restoreTranslation') {
+    // Explicit restore: works after a translation finished, when the
+    // toggle would otherwise start a new translation run.
+    shouldStopTranslation = true;
+    restoreOriginalText();
     sendResponse({ success: true, isTranslating });
   } else if (request.action === 'getTranslationStatus') {
     sendResponse({ isTranslating, hasTranslations: translatedTexts.size > 0 });
@@ -290,7 +321,8 @@ async function translatePage(targetLanguage, isAuto = false) {
       // keep watching so that content gets translated when it arrives
       startDynamicObserver();
     } else {
-      alert(t('noTranslatableText', undefined, 'No translatable text found on this page.'));
+      showToast(t('noTranslatableText', undefined, IN_PAGE_TEXT.noTranslatableText));
+
     }
     isTranslating = false;
     return;
@@ -471,6 +503,7 @@ async function processBatches(workItems, targetLanguage, isDynamic = false) {
     ? t('progressTranslatingNew', undefined, 'Translating new content...')
     : t('progressTranslating', undefined, 'Translating Page...'));
 
+
   let completedBatches = 0;
   let nextBatchIndex = 0;
 
@@ -589,8 +622,13 @@ function applyTranslation(entry, translation) {
     span.setAttribute('data-original', entry.text);
     span.setAttribute('title', t('titleOriginal', [entry.text], `Original: ${entry.text}`));
 
+
     try {
       originalEntry.node.parentNode.replaceChild(span, originalEntry.node);
+      // Hover preview is available immediately, not only once the whole
+      // page has finished translating.
+      span.addEventListener('mouseenter', showOriginalText);
+      span.addEventListener('mouseleave', hideOriginalText);
       originalTexts.set(entry.index, { node: span, text: entry.text, originalNode: originalEntry.node });
     } catch (error) {
       console.warn('Failed to replace node, node may have been removed:', error);
@@ -739,15 +777,30 @@ function showOriginalText(event) {
   const originalText = event.target.getAttribute('data-original');
   if (!originalText) return;
 
+  hideOriginalText();
+
   hoverTooltip = document.createElement('div');
   hoverTooltip.className = 'lm-hover-tooltip';
   hoverTooltip.textContent = originalText;
-
-  const rect = event.target.getBoundingClientRect();
-  hoverTooltip.style.left = rect.left + 'px';
-  hoverTooltip.style.top = (rect.bottom + 5) + 'px';
-
   document.body.appendChild(hoverTooltip);
+
+  // Keep the tooltip inside the viewport: flip above the text when there is
+  // no room below, and clamp horizontally.
+  const rect = event.target.getBoundingClientRect();
+  const tooltipRect = hoverTooltip.getBoundingClientRect();
+  const margin = TOOLTIP_VIEWPORT_MARGIN_PX;
+
+  const fitsBelow =
+    rect.bottom + TOOLTIP_OFFSET_PX + tooltipRect.height + margin <= window.innerHeight;
+  const top = fitsBelow
+    ? rect.bottom + TOOLTIP_OFFSET_PX
+    : Math.max(margin, rect.top - TOOLTIP_OFFSET_PX - tooltipRect.height);
+
+  const maxLeft = Math.max(margin, window.innerWidth - tooltipRect.width - margin);
+  const left = Math.min(Math.max(margin, rect.left), maxLeft);
+
+  hoverTooltip.style.left = `${left}px`;
+  hoverTooltip.style.top = `${top}px`;
 }
 
 function hideOriginalText() {
@@ -772,6 +825,7 @@ function createProgressUI(totalBatches, title) {
   if (!title) {
     title = t('progressTranslating', undefined, 'Translating Page...');
   }
+
   if (progressContainer) removeProgressUI();
   // A stale auto-hide timer from a previous run must not remove the new UI
   if (progressRemovalTimer) {
@@ -781,18 +835,23 @@ function createProgressUI(totalBatches, title) {
 
   progressContainer = document.createElement('div');
   progressContainer.className = 'lm-progress-container';
+  progressContainer.setAttribute('role', 'status');
+  progressContainer.setAttribute('aria-live', 'polite');
 
   progressContainer.innerHTML = `
     <div class="lm-progress-header">
+      <!-- Filled via textContent below so a caller-supplied title stays inert. -->
       <span></span>
-      <button class="lm-close-btn">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      <button type="button" class="lm-close-btn" title="${IN_PAGE_TEXT.stopTranslation}" aria-label="${IN_PAGE_TEXT.stopTranslation}">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+
       </button>
     </div>
-    <div class="lm-progress-bar-bg">
+    <div class="lm-progress-bar-bg" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
       <div class="lm-progress-bar-fill"></div>
     </div>
     <div class="lm-progress-status"></div>
+
   `;
 
   document.body.appendChild(progressContainer);
@@ -817,8 +876,14 @@ function createProgressUI(totalBatches, title) {
 function updateProgressUI(completed, total, isDone = false) {
   if (!progressContainer) return;
 
-  const percentage = Math.min(100, (completed / total) * 100);
+  // total can legitimately be 0 for an empty run; avoid rendering NaN%.
+  const percentage = total > 0 ? Math.min(100, (completed / total) * 100) : 0;
   progressBarFill.style.width = `${percentage}%`;
+
+  const progressBar = progressContainer.querySelector('.lm-progress-bar-bg');
+  if (progressBar) {
+    progressBar.setAttribute('aria-valuenow', String(Math.round(percentage)));
+  }
 
   if (isDone) {
     progressStatus.textContent = cacheStats.restored > 0
@@ -832,6 +897,7 @@ function updateProgressUI(completed, total, isDone = false) {
       ? t('progressBatchesCache', [String(completed), String(total), String(cacheStats.restored)],
           `${completed} / ${total} batches · ${cacheStats.restored} from cache`)
       : t('progressBatches', [String(completed), String(total)], `${completed} / ${total} batches`);
+
   }
 }
 
@@ -854,4 +920,50 @@ function removeProgressUI() {
   progressContainer = null;
   progressBarFill = null;
   progressStatus = null;
+}
+
+// Non-blocking replacement for alert(): a dismissible in-page toast that
+// matches the progress panel.
+let toastElement = null;
+let toastTimer = null;
+
+function showToast(message) {
+  hideToast();
+
+  toastElement = document.createElement('div');
+  toastElement.className = 'lm-toast';
+  toastElement.setAttribute('role', 'status');
+  toastElement.setAttribute('aria-live', 'polite');
+
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  icon.setAttribute('class', 'lm-toast-icon');
+  icon.setAttribute('viewBox', '0 0 24 24');
+  icon.setAttribute('fill', 'none');
+  icon.setAttribute('stroke', 'currentColor');
+  icon.setAttribute('stroke-width', '2');
+  icon.setAttribute('stroke-linecap', 'round');
+  icon.setAttribute('stroke-linejoin', 'round');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML =
+    '<circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path>';
+
+  const text = document.createElement('span');
+  text.textContent = message;
+
+  toastElement.appendChild(icon);
+  toastElement.appendChild(text);
+  document.body.appendChild(toastElement);
+
+  toastTimer = window.setTimeout(hideToast, TOAST_DISMISS_DELAY_MS);
+}
+
+function hideToast() {
+  if (toastTimer) {
+    window.clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+  if (toastElement) {
+    toastElement.remove();
+    toastElement = null;
+  }
 }
