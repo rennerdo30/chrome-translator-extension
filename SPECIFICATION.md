@@ -2,7 +2,7 @@
 
 ## Version
 
-- **Extension Version**: 1.3.0
+- **Extension Version**: 1.4.0
 - **Manifest Version**: 3
 - **Specification Date**: 2026-08-18
 
@@ -248,6 +248,10 @@ interface LocalStorageSchema {
 - Capacity is capped at 10,000 entries; the oldest entries (by timestamp) are
   evicted first. Writes are serialized in the service worker to avoid
   read-modify-write races between parallel batches.
+
+Caches are device-local: `chrome.storage.sync` cannot hold them (~100 KB total
+quota, 8 KB per item). The popup offers export/import to a JSON file for manual
+cross-browser transfer; imports merge with newer-timestamp-wins semantics.
 
 A second cache, `imageTranslationCache` (max 500 entries, same eviction), maps
 `JSON.stringify(['img', provider, model, extractor, targetLanguage, srcUrl])`
@@ -599,3 +603,4 @@ User changes provider
 | 1.1.0 | 2025-01-18 | Added URL path handling, timeouts, error messages |
 | 1.2.0 | 2026-08-17 | DeepSeek provider, per-provider execution settings (parallel requests, batch size), translation cache with dedupe, per-site auto-translate, dynamic content observation, editable model dropdown with recommendations |
 | 1.3.0 | 2026-08-18 | Image translation (built-in Tesseract OCR or vision endpoint + provider translation, overlay UI, image cache), script-aware CJK length rules, characterData/SPA-shell observation, URL-aware model recommendations |
+| 1.4.0 | 2026-08-18 | Chrome Web Store readiness: i18n (en/de via `_locales`), privacy policy, localized manifest, `minimum_chrome_version`, removed non-functional Firefox key, cache export/import (sync storage cannot hold the cache: ~100 KB quota) |

@@ -65,7 +65,9 @@ tracking. The whole extension is plain HTML, CSS and JavaScript on Manifest V3.
 
 Chrome, Edge and Brave (any Chromium browser with Manifest V3) are supported.
 
-Firefox is **not** working yet, even though `manifest.json` already carries a `browser_specific_settings.gecko` block: the background script is declared only as `background.service_worker`, and Firefox does not implement background service workers for MV3 — it needs `background.scripts` as well. Until that is added (and the code checked against Firefox's event-page lifecycle), loading it via `about:debugging` will not translate anything.
+Firefox is **not** supported: the background script is declared only as `background.service_worker`, and Firefox does not implement background service workers for MV3 — it needs `background.scripts` as well. Until that is added (and the code checked against Firefox's event-page lifecycle), the extension will not work there.
+
+The extension UI ships in **English and German** (`_locales/`), following the browser's UI language.
 
 ---
 
@@ -105,6 +107,8 @@ Translations are cached in `chrome.storage.local` (device-local, max 10,000 entr
 - If a sentence changes on the page, it no longer matches the cache and is retranslated automatically — the progress popup shows the split, e.g. "Done — 12 from cache, 3 newly translated".
 
 Enable **Auto-translate this site** in the popup to translate a site on every visit. Together with the cache this effectively gives any website an i18n layer for your target language: cached pages render translated immediately, and only new or changed content is sent to the AI provider.
+
+**Cross-browser cache**: settings (provider, API key, languages, …) sync automatically through your browser profile via `chrome.storage.sync`. The translation cache does **not** — Chrome caps sync storage at ~100 KB total, far below the cache's size — so the popup provides **Export Cache / Import Cache** buttons to move it between browsers manually (imports merge; the newer entry wins on conflicts).
 
 ### Image Translation
 
@@ -258,6 +262,9 @@ chrome-translator-extension/
 ├── offscreen.html       # Offscreen document hosting the OCR engine
 ├── offscreen.js         # OCR message handling (Tesseract worker)
 ├── vendor/tesseract/    # Bundled Tesseract.js (OCR for image translation)
+├── _locales/            # UI translations (en, de)
+├── PRIVACY.md           # Privacy policy (required for the Chrome Web Store)
+├── docs/STORE_LISTING.md# Chrome Web Store listing text and justifications
 ├── icons/               # Extension icons (16, 48, 128px)
 ├── SPECIFICATION.md     # Technical specification
 ├── CONTRIBUTING.md      # Contribution guidelines
@@ -394,6 +401,8 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 ## Links
 
+- [Privacy Policy](PRIVACY.md)
+- [Chrome Web Store listing material](docs/STORE_LISTING.md)
 - [Report a Bug](https://github.com/rennerdo30/chrome-translator-extension/issues)
 - [Request a Feature](https://github.com/rennerdo30/chrome-translator-extension/issues)
 - [LM Studio](https://lmstudio.ai/)

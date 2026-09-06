@@ -711,13 +711,15 @@
       </span>
       <span class="brand-text">
         <span class="brand-name">AI Translator</span>
-        <span class="brand-tagline">Privacy-first translation</span>
+        <span class="brand-tagline" data-i18n="brandTagline">Privacy-first translation</span>
       </span>
+
     </div>
     <p id="connectionStatus" class="status-indicator" aria-live="polite">
       <span class="status-dot"></span>
-      <span id="statusText">Offline</span>
+      <span id="statusText" data-i18n="statusOffline">Offline</span>
     </p>
+
   </header>
 
   <main class="content">
@@ -732,7 +734,7 @@
 
     <section class="form-section" aria-label="Translation settings">
       <div class="form-group">
-        <label class="form-label" for="provider">Provider</label>
+        <label class="form-label" for="provider" data-i18n="labelProvider">Provider</label>
         <select id="provider" class="select">
           <option value="lmstudio">LM Studio</option>
           <option value="ollama">Ollama</option>
@@ -742,19 +744,20 @@
       </div>
 
       <div class="form-group" id="urlGroup">
-        <label class="form-label" for="apiUrl">API endpoint</label>
+        <label class="form-label" for="apiUrl" data-i18n="labelApiEndpoint">API endpoint</label>
         <input type="url" id="apiUrl" class="input" placeholder="http://localhost:1234"
                spellcheck="false" autocomplete="off" autocapitalize="off">
       </div>
 
       <div class="form-group hidden" id="apiKeyGroup">
-        <label class="form-label" for="apiKey">API key</label>
+        <label class="form-label" for="apiKey" data-i18n="labelApiKey">API key</label>
         <div class="form-row">
           <input type="password" id="apiKey" class="input flex-1" placeholder="sk-…"
                  spellcheck="false" autocomplete="off" autocapitalize="off">
           <button type="button" id="toggleApiKey" class="btn-icon" aria-pressed="false"
                   aria-label="Show API key" title="Show API key">
             <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
               <circle cx="12" cy="12" r="3"/>
             </svg>
@@ -764,22 +767,24 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="modelName">Model</label>
+        <label class="form-label" for="modelName" data-i18n="labelModel">Model</label>
         <div class="form-row">
           <div class="combobox flex-1">
             <input type="text" id="modelName" class="input" placeholder="Auto-detect"
                    spellcheck="false" autocomplete="off" autocapitalize="off">
-            <button type="button" id="modelDropdownToggle" class="combobox-toggle"
+            <button type="button" id="modelDropdownToggle" data-i18n-title="titleModelSuggestions" class="combobox-toggle"
                     title="Show model suggestions" aria-label="Show model suggestions">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
             </button>
             <div id="modelDropdown" class="combobox-dropdown hidden"></div>
           </div>
-          <button type="button" id="refreshModels" class="btn-icon"
+          <button type="button" id="refreshModels" data-i18n-title="titleRefreshModels" class="btn-icon"
                   aria-label="Detect available models" title="Detect available models">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+
               <path d="M23 4v6h-6"/>
               <path d="M1 20v-6h6"/>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
@@ -791,18 +796,18 @@
       <div class="form-group">
         <div class="form-row">
           <div class="flex-1">
-            <label class="form-label" for="parallelRequests">Parallel Requests</label>
-            <input type="number" id="parallelRequests" class="input" min="1" max="10" step="1" title="Number of translation requests sent at the same time (1 = sequential)">
+            <label class="form-label" for="parallelRequests" data-i18n="labelParallelRequests">Parallel Requests</label>
+            <input type="number" id="parallelRequests" class="input" min="1" max="10" step="1" data-i18n-title="titleParallelRequests" title="Number of translation requests sent at the same time (1 = sequential)">
           </div>
           <div class="flex-1">
-            <label class="form-label" for="batchSize">Batch Size</label>
-            <input type="number" id="batchSize" class="input" min="1" max="50" step="1" title="Text chunks combined into one request">
+            <label class="form-label" for="batchSize" data-i18n="labelBatchSize">Batch Size</label>
+            <input type="number" id="batchSize" class="input" min="1" max="50" step="1" data-i18n-title="titleBatchSize" title="Text chunks combined into one request">
           </div>
         </div>
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="targetLanguage">Translate to</label>
+        <label class="form-label" for="targetLanguage" data-i18n="labelTranslateTo">Translate to</label>
         <select id="targetLanguage" class="select">
           <option value="English">English</option>
           <option value="Spanish">Spanish</option>
@@ -824,41 +829,41 @@
       </div>
 
       <div class="form-group">
-        <label class="checkbox-label" for="autoTranslateSite" title="Automatically translate this site on every visit — cached segments load instantly, only new or changed text is retranslated">
+        <label class="checkbox-label" for="autoTranslateSite" data-i18n-title="titleAutoTranslateSite" title="Automatically translate this site on every visit — cached segments load instantly, only new or changed text is retranslated">
           <input type="checkbox" id="autoTranslateSite" class="checkbox">
-          <span>Auto-translate this site</span>
+          <span data-i18n="labelAutoTranslateSite">Auto-translate this site</span>
         </label>
       </div>
     </section>
 
     <section class="form-section">
       <div class="form-group">
-        <label class="form-label" for="visionMode">Image Translation</label>
+        <label class="form-label" for="visionMode" data-i18n="labelImageTranslation">Image Translation</label>
         <select id="visionMode" class="select">
-          <option value="builtin">Built-in OCR (no setup needed)</option>
-          <option value="endpoint">Vision model endpoint</option>
+          <option value="builtin" data-i18n="optionBuiltinOcr">Built-in OCR (no setup needed)</option>
+          <option value="endpoint" data-i18n="optionVisionEndpoint">Vision model endpoint</option>
         </select>
-        <p class="hint">Right-click any image &rarr; "Translate image with AI". The text is extracted, then translated by your provider above.</p>
+        <p class="hint" data-i18n="hintImageTranslation">Right-click any image &rarr; "Translate image with AI". The text is extracted, then translated by your provider above.</p>
       </div>
 
       <div class="form-group" id="ocrLanguagesGroup">
-        <label class="form-label" for="visionOcrLanguages">OCR Languages</label>
+        <label class="form-label" for="visionOcrLanguages" data-i18n="labelOcrLanguages">OCR Languages</label>
         <input type="text" id="visionOcrLanguages" class="input" placeholder="eng" title="Tesseract language codes joined with +, e.g. eng+jpn+deu">
-        <p class="hint">Language codes joined with +, e.g. <code>eng+jpn+deu</code>. Language data is downloaded once and cached.</p>
+        <p class="hint" data-i18n="hintOcrLanguages">Language codes joined with +, e.g. <code>eng+jpn+deu</code>. Language data is downloaded once and cached.</p>
       </div>
 
       <div class="hidden" id="visionEndpointGroup">
         <div class="form-group">
-          <label class="form-label" for="visionUrl">Vision Endpoint</label>
+          <label class="form-label" for="visionUrl" data-i18n="labelVisionEndpoint">Vision Endpoint</label>
           <input type="url" id="visionUrl" class="input" placeholder="http://localhost:11434">
         </div>
         <div class="form-group">
-          <label class="form-label" for="visionModel">Vision Model</label>
+          <label class="form-label" for="visionModel" data-i18n="labelVisionModel">Vision Model</label>
           <input type="text" id="visionModel" class="input" placeholder="qwen3-vl">
         </div>
         <div class="form-group">
-          <label class="form-label" for="visionApiKey">Vision API Key (optional)</label>
-          <input type="password" id="visionApiKey" class="input" placeholder="Only for cloud vision APIs">
+          <label class="form-label" for="visionApiKey" data-i18n="labelVisionApiKey">Vision API Key (optional)</label>
+          <input type="password" id="visionApiKey" class="input" data-i18n-placeholder="placeholderVisionApiKey" placeholder="Only for cloud vision APIs">
         </div>
       </div>
     </section>
@@ -873,7 +878,8 @@
           <path d="m22 22-5-10-5 10"/>
           <path d="M14 18h6"/>
         </svg>
-        Translate page
+        <span data-i18n="btnTranslatePage">Translate Page</span>
+
       </button>
 
       <button type="button" id="restoreBtn" class="btn btn-secondary hidden">
@@ -881,18 +887,39 @@
           <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
           <path d="M3 3v5h5"/>
         </svg>
-        Restore original
+        <span data-i18n="btnRestore">Restore Original</span>
       </button>
 
       <button type="button" id="testConnection" class="btn btn-quiet">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
         </svg>
-        Test connection
+        <span data-i18n="btnTestConnection">Test Connection</span>
       </button>
     </div>
 
+    <div class="form-row cache-actions">
+      <button type="button" id="exportCache" class="btn btn-quiet flex-1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span data-i18n="btnExportCache">Export Cache</span>
+      </button>
+      <button type="button" id="importCache" class="btn btn-quiet flex-1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <span data-i18n="btnImportCache">Import Cache</span>
+      </button>
+      <input type="file" id="importCacheFile" accept=".json,application/json" class="hidden">
+    </div>
+
     <p id="status" class="status-message" role="status" aria-live="polite"></p>
+
   </main>
 
   <script src="popup.js"></script>

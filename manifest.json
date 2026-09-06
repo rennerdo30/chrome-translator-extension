@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "AI Translator",
-  "version": "1.3.0",
-  "description": "Translate web pages using local AI models (LM Studio, Ollama) or cloud APIs (OpenAI, DeepSeek, OpenRouter)",
+  "name": "__MSG_extName__",
+  "version": "1.4.0",
+  "description": "__MSG_extDescription__",
+  "default_locale": "en",
+  "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",
     "storage",
@@ -20,7 +22,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "AI Translator",
+    "default_title": "__MSG_extName__",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -52,11 +54,5 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "ai-translator@extension",
-      "strict_min_version": "109.0"
-    }
   }
 }

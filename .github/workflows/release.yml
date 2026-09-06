@@ -21,10 +21,6 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Get version from tag
         id: version
@@ -51,7 +47,7 @@ jobs:
         run: |
           mkdir -p dist
 
-          # Create Chrome/Edge package
+          # Create Chrome/Edge package (same file set as a Chrome Web Store upload)
           zip -r dist/ai-translator-chrome-v${{ steps.version.outputs.version }}.zip \
             manifest.json \
             background.js \
@@ -59,22 +55,11 @@ jobs:
             content.css \
             popup.html \
             popup.js \
+            offscreen.html \
+            offscreen.js \
             icons/ \
-            -x "*.git*" \
-            -x "*.DS_Store"
-
-      - name: Create Firefox extension package
-        run: |
-          # Firefox uses the same files but needs id in manifest
-          # The browser_specific_settings in manifest.json handles this
-          zip -r dist/ai-translator-firefox-v${{ steps.version.outputs.version }}.zip \
-            manifest.json \
-            background.js \
-            content.js \
-            content.css \
-            popup.html \
-            popup.js \
-            icons/ \
+            vendor/ \
+            _locales/ \
             -x "*.git*" \
             -x "*.DS_Store"
 
@@ -105,12 +90,6 @@ jobs:
             4. Enable "Developer mode"
             5. Click "Load unpacked" and select the extracted folder
 
-            **Firefox:**
-            1. Download `ai-translator-firefox-v${{ steps.version.outputs.version }}.zip`
-            2. Go to `about:debugging#/runtime/this-firefox`
-            3. Click "Load Temporary Add-on"
-            4. Select the ZIP file
-
             ### Checksums (SHA-256)
             See `checksums-v${{ steps.version.outputs.version }}.txt` for file verification.
 
@@ -119,7 +98,6 @@ jobs:
 
           files: |
             dist/ai-translator-chrome-v${{ steps.version.outputs.version }}.zip
-            dist/ai-translator-firefox-v${{ steps.version.outputs.version }}.zip
             dist/ai-translator-source-v${{ steps.version.outputs.version }}.zip
             dist/checksums-v${{ steps.version.outputs.version }}.txt
           draft: false
@@ -131,9 +109,3 @@ jobs:
         with:
           name: chrome-extension-v${{ steps.version.outputs.version }}
           path: dist/ai-translator-chrome-v${{ steps.version.outputs.version }}.zip
-
-      - name: Upload Firefox artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: firefox-extension-v${{ steps.version.outputs.version }}
-          path: dist/ai-translator-firefox-v${{ steps.version.outputs.version }}.zip

@@ -9,6 +9,29 @@ const PROVIDER = {
   DEEPSEEK: 'deepseek'
 };
 
+// i18n helper: falls back to the given English text if the message is missing
+function t(key, substitutions, fallback) {
+  const message = chrome.i18n.getMessage(key, substitutions);
+  return message || fallback || key;
+}
+
+// Replace static texts with the active locale (elements carry data-i18n attributes)
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const message = chrome.i18n.getMessage(el.dataset.i18n);
+    if (message) el.textContent = message;
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const message = chrome.i18n.getMessage(el.dataset.i18nTitle);
+    if (message) el.title = message;
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const message = chrome.i18n.getMessage(el.dataset.i18nPlaceholder);
+    if (message) el.placeholder = message;
+  });
+}
+
+
 // Provider preset defaults (shared shape with background.js PROVIDER_DEFAULT_URLS)
 const DEFAULT_URLS = {
   [PROVIDER.LM_STUDIO]: 'http://localhost:1234',
@@ -38,18 +61,19 @@ const DEFAULT_MODEL_PLACEHOLDER = 'Auto-detect';
 // model dropdown (verified against provider docs, August 2026)
 const PROVIDER_MODEL_RECOMMENDATIONS = {
   [PROVIDER.DEEPSEEK]: [
-    { id: 'deepseek-v4-flash', note: 'Recommended: fast, inexpensive, ideal for translation' },
-    { id: 'deepseek-v4-pro', note: 'Highest quality, slower and pricier' }
+    { id: 'deepseek-v4-flash', noteKey: 'recDeepseekFlash', note: 'Recommended: fast, inexpensive, ideal for translation' },
+    { id: 'deepseek-v4-pro', noteKey: 'recDeepseekPro', note: 'Highest quality, slower and pricier' }
   ],
   [PROVIDER.OPENAI]: [
-    { id: 'gpt-5-mini', note: 'Recommended: good quality/cost balance' },
-    { id: 'gpt-5-nano', note: 'Fastest and cheapest' },
-    { id: 'gpt-5.4-mini', note: 'Newer mid-tier' }
+    { id: 'gpt-5-mini', noteKey: 'recGpt5Mini', note: 'Recommended: good quality/cost balance' },
+    { id: 'gpt-5-nano', noteKey: 'recGpt5Nano', note: 'Fastest and cheapest' },
+    { id: 'gpt-5.4-mini', noteKey: 'recGpt54Mini', note: 'Newer mid-tier' }
   ],
   [PROVIDER.OLLAMA]: [
-    { id: 'qwen3', note: 'Strong multilingual (if installed)' },
-    { id: 'llama3.3', note: 'General purpose (if installed)' },
-    { id: 'gemma3', note: 'Lightweight (if installed)' }
+    { id: 'qwen3', noteKey: 'recQwen3', note: 'Strong multilingual (if installed)' },
+    { id: 'llama3.3', noteKey: 'recLlama33', note: 'General purpose (if installed)' },
+    { id: 'gemma3', noteKey: 'recGemma3', note: 'Lightweight (if installed)' }
+
   ],
   [PROVIDER.LM_STUDIO]: [] // suggestions come from the local server via model refresh
 };
@@ -196,6 +220,10 @@ function isUnsupportedUrl(url) {
 // --- UI --------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', async () => {
+  applyI18n();
+
+  // Element references
+
   const providerSelect = document.getElementById('provider');
   const apiUrlInput = document.getElementById('apiUrl');
   const apiKeyInput = document.getElementById('apiKey');
@@ -309,8 +337,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     await chrome.storage.sync.set({ autoTranslateSites: [...sites] });
     showStatus(autoTranslateSiteCheckbox.checked
-      ? `Auto-translate enabled for ${currentHostname}`
-      : `Auto-translate disabled for ${currentHostname}`, 'success');
+      ? t('statusAutoTranslateOn', [currentHostname], `Auto-translate enabled for ${currentHostname}`)
+      : t('statusAutoTranslateOff', [currentHostname], `Auto-translate disabled for ${currentHostname}`), 'success');
   });
 
   if (tab && tab.id && !isUnsupportedUrl(tab.url)) {
@@ -324,7 +352,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.debug('Content script not reachable yet:', error && error.message);
       });
   } else {
-    showPageNotice(MESSAGES.unsupportedPage);
+    showPageNotice(t('statusCannotTranslatePage', undefined, MESSAGES.unsupportedPage));
+
     translateBtn.disabled = true;
     restoreBtn.disabled = true;
   }
@@ -364,7 +393,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function updateProviderUI() {
     const provider = providerSelect.value;
     apiKeyGroup.classList.toggle(CSS_CLASS.hidden, !API_KEY_PROVIDERS.includes(provider));
-    modelNameInput.placeholder = PROVIDER_MODEL_PLACEHOLDERS[provider] || DEFAULT_MODEL_PLACEHOLDER;
+    modelNameInput.placeholder = PROVIDER_MODEL_PLACEHOLDERS[provider] || t('placeholderAutoDetect', undefined, DEFAULT_MODEL_PLACEHOLDER);
+
     // Models from the previous provider are no longer valid
     availableModelIds = [];
     renderModelDropdown();
@@ -436,16 +466,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (visibleRecommendations.length > 0) {
       const header = document.createElement('div');
       header.className = 'combobox-section';
-      header.textContent = 'Recommended';
+      header.textContent = t('dropdownRecommended', undefined, 'Recommended');
       modelDropdown.appendChild(header);
-      visibleRecommendations.forEach(r => modelDropdown.appendChild(buildModelOption(r.id, r.note)));
+      visibleRecommendations.forEach(r => modelDropdown.appendChild(buildModelOption(r.id, t(r.noteKey, undefined, r.note))));
     }
 
     const visibleFetched = fetched.filter(matchesFilter);
     if (visibleFetched.length > 0) {
       const header = document.createElement('div');
       header.className = 'combobox-section';
-      header.textContent = 'Available models';
+      header.textContent = t('dropdownAvailable', undefined, 'Available models');
       modelDropdown.appendChild(header);
       visibleFetched.forEach(id => modelDropdown.appendChild(buildModelOption(id)));
     }
@@ -454,8 +484,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const empty = document.createElement('div');
       empty.className = 'combobox-empty';
       empty.textContent = typed
-        ? 'No matching models — free text is fine'
-        : 'No models detected yet — use Test Connection or type a model name';
+        ? t('dropdownNoMatch', undefined, 'No matching models — free text is fine')
+        : t('dropdownNoModels', undefined, 'No models detected yet — use Test Connection or type a model name');
       modelDropdown.appendChild(empty);
     }
   }
@@ -525,7 +555,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateUI(true, false);
       window.close();
     } catch (error) {
-      showStatus(MESSAGES.pageNotReady, STATUS_VARIANT.ERROR);
+      showStatus(t('statusRefreshPage', undefined, MESSAGES.pageNotReady), STATUS_VARIANT.ERROR);
+
     }
   });
 
@@ -540,7 +571,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateUI(false, false);
       window.close();
     } catch (error) {
-      showStatus(MESSAGES.pageNotReady, STATUS_VARIANT.ERROR);
+      showStatus(t('statusRefreshPage', undefined, MESSAGES.pageNotReady), STATUS_VARIANT.ERROR);
+
     }
   });
 
@@ -564,15 +596,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!modelNameInput.value) {
           modelNameInput.value = modelIds[0];
           await saveSettings();
-          showStatus(MESSAGES.modelsFoundSelected(modelIds.length, modelIds[0]), STATUS_VARIANT.SUCCESS);
+          showStatus(t('statusModelsFound', [String(modelIds.length), modelIds[0]], `Found ${modelIds.length} model(s). Selected: ${modelIds[0]}`), 'success');
         } else {
-          showStatus(MESSAGES.modelsFoundPick(modelIds.length), STATUS_VARIANT.SUCCESS);
+          showStatus(t('statusModelsFoundPick', [String(modelIds.length)], `Found ${modelIds.length} model(s) — open the model field to pick one`), 'success');
         }
       } else {
-        showStatus(MESSAGES.noModels, STATUS_VARIANT.ERROR);
+        showStatus(t('statusNoModels', undefined, 'No models found'), 'error');
       }
     } catch (error) {
-      showStatus(MESSAGES.modelLookupFailed(errorText(error)), STATUS_VARIANT.ERROR);
+      showStatus(t('statusRefreshFailed', [errorText(error)], `Failed: ${errorText(error)}`), 'error');
+
     } finally {
       setBusy(refreshModelsBtn, false);
     }
@@ -604,21 +637,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     const trimmedUrl = (url || '').trim();
 
     if (trimmedUrl === '') {
-      return { valid: false, error: MESSAGES.urlEmpty };
+      return { valid: false, error: t('errUrlEmpty', undefined, MESSAGES.urlEmpty) };
+
     }
 
     if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
-      return { valid: false, error: MESSAGES.urlScheme };
+      return { valid: false, error: t('errUrlScheme', undefined, MESSAGES.urlScheme) };
+
     }
 
     try {
       const parsed = new URL(trimmedUrl);
       if (!parsed.hostname) {
-        return { valid: false, error: MESSAGES.urlHost };
+        return { valid: false, error: t('errUrlHost', undefined, 'URL must have a valid hostname') };
       }
       return { valid: true, url: trimmedUrl };
-    } catch (error) {
-      return { valid: false, error: MESSAGES.urlInvalid };
+    } catch (e) {
+      return { valid: false, error: t('errUrlInvalid', undefined, 'Invalid URL format') };
+
     }
   }
 
@@ -717,6 +753,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function errorText(error) {
     return (error && error.message) || MESSAGES.unknownError;
+
   }
 
   async function testConnection() {
@@ -726,6 +763,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setBusy(testConnectionBtn, true);
     showStatus(MESSAGES.testing, STATUS_VARIANT.NEUTRAL, true);
 
+
     try {
       const response = await chrome.runtime.sendMessage({
         action: ACTION.GET_MODELS,
@@ -734,6 +772,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (!response || !response.success) {
         throw new Error((response && response.error) || MESSAGES.unknownError);
+
       }
 
       updateConnectionIndicator(true);
@@ -746,6 +785,82 @@ document.addEventListener('DOMContentLoaded', async () => {
       setBusy(testConnectionBtn, false);
     }
   }
+
+  // --- Cache export/import ------------------------------------------------
+  // chrome.storage.sync only holds ~100 KB, far too small for the translation
+  // cache — settings sync via the Google account, the cache does not. These
+  // buttons let users carry the cache to another browser manually.
+
+  const exportCacheBtn = document.getElementById('exportCache');
+  const importCacheBtn = document.getElementById('importCache');
+  const importCacheFileInput = document.getElementById('importCacheFile');
+  const CACHE_EXPORT_FORMAT = 'ai-translator-cache';
+  const CACHE_EXPORT_VERSION = 1;
+
+  // Newer timestamp wins on conflicting entries
+  function mergeCache(existing, imported) {
+    const merged = { ...existing };
+    for (const [key, entry] of Object.entries(imported || {})) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (!merged[key] || (entry.ts || 0) > (merged[key].ts || 0)) {
+        merged[key] = entry;
+      }
+    }
+    return merged;
+  }
+
+  exportCacheBtn.addEventListener('click', async () => {
+    const stored = await chrome.storage.local.get(['translationCache', 'imageTranslationCache']);
+    const translationCache = stored.translationCache || {};
+    const imageTranslationCache = stored.imageTranslationCache || {};
+    const entryCount = Object.keys(translationCache).length + Object.keys(imageTranslationCache).length;
+
+    const payload = {
+      format: CACHE_EXPORT_FORMAT,
+      version: CACHE_EXPORT_VERSION,
+      exportedAt: new Date().toISOString(),
+      translationCache,
+      imageTranslationCache
+    };
+
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ai-translator-cache-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    showStatus(t('statusCacheExported', [String(entryCount)], `Cache exported (${entryCount} entries)`), 'success');
+  });
+
+  importCacheBtn.addEventListener('click', () => importCacheFileInput.click());
+
+  importCacheFileInput.addEventListener('change', async () => {
+    const file = importCacheFileInput.files[0];
+    importCacheFileInput.value = '';
+    if (!file) return;
+
+    try {
+      const payload = JSON.parse(await file.text());
+      if (payload.format !== CACHE_EXPORT_FORMAT || typeof payload.translationCache !== 'object') {
+        throw new Error(t('errUrlInvalid', undefined, 'Invalid file format'));
+      }
+
+      const stored = await chrome.storage.local.get(['translationCache', 'imageTranslationCache']);
+      const mergedTranslations = mergeCache(stored.translationCache || {}, payload.translationCache);
+      const mergedImages = mergeCache(stored.imageTranslationCache || {}, payload.imageTranslationCache);
+      await chrome.storage.local.set({
+        translationCache: mergedTranslations,
+        imageTranslationCache: mergedImages
+      });
+
+      const entryCount = Object.keys(mergedTranslations).length + Object.keys(mergedImages).length;
+      showStatus(t('statusCacheImported', [String(entryCount)], `Cache imported (${entryCount} entries)`), 'success');
+    } catch (error) {
+      showStatus(t('statusCacheImportFailed', [error.message], `Cache import failed: ${error.message}`), 'error');
+    }
+  });
+
 
   function sendMessageToContentScript(tabId, message) {
     return new Promise((resolve, reject) => {
