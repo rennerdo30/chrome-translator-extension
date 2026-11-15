@@ -1,26 +1,22 @@
-# Standardized Dependabot configuration.
+# Dependabot configuration.
 #
-# Minor and patch updates for each ecosystem are grouped into a single weekly
-# pull request. This keeps the review queue small and — importantly — makes it
-# impossible to split version-locked pairs (react/react-dom, @mui/material and
-# @mui/icons-material, next and eslint-config-next) across separate PRs, which
-# has broken main before.
-#
-# Major updates are intentionally NOT grouped: they arrive as individual pull
-# requests so each one gets evaluated on its own.
+# Low-traffic repository: every version update across all ecosystems lands in
+# ONE pull request per month (a multi-ecosystem group). A cooldown skips
+# releases younger than a week. Security updates are not delayed and arrive as
+# soon as an advisory matches.
 version: 2
+
+multi-ecosystem-groups:
+  monthly-dependencies:
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "deps"
 
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 3
-    commit-message:
-      prefix: "deps(actions):"
-    groups:
-      actions-minor-patch:
-        applies-to: version-updates
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+    patterns: ["*"]
+    multi-ecosystem-group: "monthly-dependencies"
+    cooldown:
+      default-days: 7
