@@ -9,6 +9,13 @@
   [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg)](https://developer.chrome.com/docs/extensions/mv3/)
 </div>
 
+> [!IMPORTANT]
+> **This project is archived and continues as [any-i18n](https://github.com/rennerdo30/any-i18n).**
+> Everything here (LM Studio, Ollama, OpenAI-compatible and DeepSeek providers, image translation with
+> the built-in OCR, hover-to-compare, auto-translate, English and German UI) is part of any-i18n,
+> together with per-site translation keys, JSON export/import, a CLI and an optional translation
+> server. Install any-i18n instead; this repository receives no further updates.
+
 ---
 
 ## Overview
